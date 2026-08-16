@@ -73,4 +73,8 @@ def simulate(request: ScenarioRequest) -> SimulationResponse:
         ),
         "alarm_samples": int(frame["sensor_alarm"].sum()),
     }
-    return SimulationResponse(summary=summary, records=frame.to_dict(orient="records"))
+    records = [
+        {str(key): value for key, value in record.items()}
+        for record in frame.to_dict(orient="records")
+    ]
+    return SimulationResponse(summary=summary, records=records)
