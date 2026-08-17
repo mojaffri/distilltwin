@@ -377,9 +377,15 @@ def render_markdown(report: ValidationReport) -> str:
     physics = report.physics
     fault = report.fault_detection
     control_rows = "\n".join(
-        "| {mode} | {variable} | {iae:.6f} | {ise:.6f} | {peak_absolute_error:.6f} | "
-        "{final_absolute_error:.6f} | {settling_time:.2f} |".format(**row)
-        for row in report.control.rows()
+        f"| {mode} | {variable} | {metrics.iae:.6f} | {metrics.ise:.6f} | "
+        f"{metrics.peak_absolute_error:.6f} | {metrics.final_absolute_error:.6f} | "
+        f"{metrics.settling_time:.2f} |"
+        for mode, variable, metrics in (
+            ("open loop", "top composition", report.control.open_loop_top),
+            ("paired PID", "top composition", report.control.closed_loop_top),
+            ("open loop", "bottom composition", report.control.open_loop_bottom),
+            ("paired PID", "bottom composition", report.control.closed_loop_bottom),
+        )
     )
     timestep_rows = "\n".join(
         f"| {case.dt:.3f} | {case.samples} | "
