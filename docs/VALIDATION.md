@@ -76,8 +76,8 @@ The automated suite requires:
 - physically bounded, monotonic nominal composition;
 - improved final top and bottom error under paired PID control;
 - improved top-composition IAE under paired PID control;
-- decreasing timestep error toward the fine reference, with final-product difference
-  below `5e-4` at `dt = 0.1 min`; and
+- final top and bottom product differences below `5e-4` across every tested
+  timestep and below `5e-5` at `dt = 0.1 min`; and
 - detection of the known analyzer bias without pre-fault false alarms.
 
 These thresholds are deliberately tied to the transparent model's stated assumptions.
