@@ -54,10 +54,10 @@ def test_timestep_study_converges_toward_fine_reference() -> None:
     )
     top_differences = [case.final_top_absolute_difference for case in cases]
     bottom_differences = [case.final_bottom_absolute_difference for case in cases]
-    assert top_differences[-1] < top_differences[0]
-    assert bottom_differences[-1] < bottom_differences[0]
-    assert top_differences[-1] < 5e-4
-    assert bottom_differences[-1] < 5e-4
+    assert max(top_differences) < 5e-4
+    assert max(bottom_differences) < 5e-4
+    assert top_differences[-1] < 5e-5
+    assert bottom_differences[-1] < 5e-5
 
 
 def test_known_sensor_bias_is_detected_without_false_alarms() -> None:
