@@ -94,9 +94,10 @@ The command creates:
 - an open-loop/PID benchmark CSV; and
 - an RK4 timestep-sensitivity CSV.
 
-GitHub Actions generates and uploads the same bundle on every pull request. The
-methodology, experimental design, acceptance thresholds, and evidence boundaries are
-documented in [docs/VALIDATION.md](docs/VALIDATION.md).
+GitHub Actions generates and uploads the same bundle on every pull request. See the
+[validated reference results](docs/VALIDATION_RESULTS.md) for the current metrics and
+[validation strategy](docs/VALIDATION.md) for the experimental design, acceptance
+thresholds, and evidence boundaries.
 
 ## API and CLI
 
