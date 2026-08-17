@@ -1,57 +1,68 @@
 # DistillTwin
 
 [![CI](https://github.com/mojaffri/distilltwin/actions/workflows/ci.yml/badge.svg)](https://github.com/mojaffri/distilltwin/actions/workflows/ci.yml)
+[![Coverage ≥90%](https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen.svg)](pyproject.toml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](https://www.python.org/)
+[![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-An open, dynamic digital twin of a binary distillation column for process-control,
-fault-detection, and time-series experiments—with a documented path to rigorous
-Aspen Plus and Aspen Plus Dynamics validation.
+An open, dynamic digital twin of a binary distillation column for process control,
+fault detection, and reproducible engineering experiments—with a documented path to
+rigorous Aspen Plus and Aspen Plus Dynamics validation.
 
 DistillTwin is intentionally a different engineering story from
 [Titrate](https://github.com/mojaffri/titrate). Titrate demonstrates scientific ML
 and MLOps; this repository demonstrates dynamic process modeling, feedback control,
-fault injection, industrial analytics, API design, containerization, and eventually
-commercial-simulator integration.
+fault injection, industrial analytics, numerical verification, API design,
+containerization, and eventually commercial-simulator integration.
 
-> **Current validation boundary:** the open Python model is implemented and tested.
-> It has **not** yet been calibrated against Aspen. Aspen work is labeled as planned
-> until it is performed through licensed university access.
+> **Current validation boundary:** the Python model is implemented, tested, and
+> validated within its documented reduced-order assumptions. It has **not** been
+> calibrated against Aspen or plant data. Commercial-simulator work remains explicitly
+> labeled as planned until performed through licensed university access.
 
-## What is working now
+## Engineering evidence
 
-- Dynamic light-key component balances across eight equilibrium stages
+- Dynamic light-key balances across eight equilibrium stages
 - Total condenser, partial reboiler, saturated-liquid feed, and nonlinear VLE
 - Fourth-order Runge-Kutta integration and a numerical steady-state initializer
 - Paired top/bottom composition PID loops with saturation and anti-windup
 - Feed-composition and feed-rate disturbances
 - Analyzer-bias and reflux-valve-effectiveness fault injection
 - EWMA residual alarms and a dependency-light ridge-regression soft sensor
-- Interactive Streamlit control room
-- FastAPI service with validated scenario inputs and OpenAPI documentation
-- CLI scenario export, Docker/Compose packaging, tests, linting, typing, and CI
+- Open-loop versus paired-PID IAE, ISE, peak-error, final-error, and settling benchmarks
+- Automated material-balance, steady-state, and RK4 timestep-sensitivity checks
+- Known-fault detection delay, false-alarm, and post-fault alarm measurements
+- Interactive Streamlit control room and recruiter-facing Validation Lab
+- FastAPI service with validated inputs and generated OpenAPI documentation
+- CLI experiment and validation exports, Docker/Compose, typing, linting, tests, and CI
+- Enforced 90% test-coverage floor across Python 3.11 and 3.12
+- Containerized API runtime smoke test—not only a Docker build check
 
 ## Architecture
 
 ~~~mermaid
 flowchart LR
-    UI[Streamlit control room] --> SC[Scenario runner]
+    UI[Streamlit Engineering Lab] --> SC[Scenario runner]
     API[FastAPI service] --> SC
-    CLI[CLI experiment] --> SC
+    CLI[CLI experiments] --> SC
     SC --> PID[Paired PID controllers]
     PID --> COL[Dynamic staged-column model]
     COL --> TS[Process time series]
     TS --> FD[EWMA fault monitor]
     TS --> SS[Ridge soft sensor]
+    COL --> VAL[Validation suite]
+    SC --> VAL
+    VAL --> EV[Markdown, JSON, and CSV evidence]
     ASPEN[Aspen Plus / Dynamics adapter<br/>planned, license required] -. calibration and validation .-> COL
 ~~~
 
-The open model uses constant relative volatility and constant molar overflow. That
-makes every balance auditable and simulations fast enough for controls and analytics.
-The future Aspen layer will add rigorous thermodynamics, equipment sizing, pressure
-dynamics, and a higher-fidelity validation reference.
+The open model uses constant relative volatility and constant molar overflow. This
+keeps every balance auditable and makes simulations fast enough for control and
+analytics experiments. The future Aspen layer will add rigorous thermodynamics,
+equipment sizing, pressure dynamics, and a higher-fidelity reference.
 
-## Run it locally
+## Interactive Engineering Lab
 
 ~~~bash
 git clone https://github.com/mojaffri/distilltwin.git
@@ -60,13 +71,34 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate
 # macOS/Linux: source .venv/bin/activate
 pip install -e ".[dev]"
-~~~
-
-Launch the interactive process-control lab:
-
-~~~bash
 streamlit run webapp/app.py
 ~~~
+
+The **Control room** tab provides adjustable feed, sensor, and valve scenarios with
+live composition, manipulated-variable, temperature, and alarm plots.
+
+The **Validation lab** presents balance closure, steady-state stationarity, paired-PID
+improvement, timestep sensitivity, and fault-detection metrics. Its report can be
+downloaded directly from the interface.
+
+## Generate reproducible validation evidence
+
+~~~bash
+distilltwin-validate --output validation-report
+~~~
+
+The command creates:
+
+- a reviewer-readable Markdown report;
+- structured JSON results;
+- an open-loop/PID benchmark CSV; and
+- an RK4 timestep-sensitivity CSV.
+
+GitHub Actions generates and uploads the same bundle on every pull request. The
+methodology, experimental design, acceptance thresholds, and evidence boundaries are
+documented in [docs/VALIDATION.md](docs/VALIDATION.md).
+
+## API and CLI
 
 Launch the API and open http://localhost:8000/docs:
 
@@ -74,21 +106,7 @@ Launch the API and open http://localhost:8000/docs:
 uvicorn distilltwin.api:app --reload
 ~~~
 
-Run a repeatable experiment and export its time series:
-
-~~~bash
-distilltwin --feed-composition 0.62 --sensor-bias 0.03
-~~~
-
-Or run both services with containers:
-
-~~~bash
-docker compose up --build
-# API:       http://localhost:8000/docs
-# Dashboard: http://localhost:8501
-~~~
-
-## API example
+Example scenario:
 
 ~~~bash
 curl -X POST http://localhost:8000/simulate \
@@ -104,18 +122,39 @@ curl -X POST http://localhost:8000/simulate \
 The response includes final product compositions, peak control error, alarm count,
 and the complete process time series.
 
+Run a repeatable experiment and export its time series:
+
+~~~bash
+distilltwin --feed-composition 0.62 --sensor-bias 0.03
+~~~
+
+Or run both services with containers:
+
+~~~bash
+docker compose up --build
+# API:       http://localhost:8000/docs
+# Dashboard: http://localhost:8501
+~~~
+
 ## Verification
 
 ~~~bash
 ruff check .
 mypy src
 pytest
+distilltwin-validate --output validation-report
 docker build -t distilltwin .
 ~~~
 
-The test suite checks VLE behavior, overall light-key conservation, steady-state
-convergence, numerical bounds, controller direction and anti-windup, fault injection,
-soft-sensor behavior, alarm activation, API contracts, and invalid-input handling.
+CI executes the quality suite on Python 3.11 and 3.12, refuses coverage below 90%,
+builds the production image, launches it as a non-root user, and calls the real
+containerized `/health` endpoint.
+
+The tests cover VLE behavior, overall light-key conservation, steady-state
+convergence, physical bounds, controller direction and anti-windup, open-loop/PID
+performance, timestep sensitivity, fault injection and detection, soft-sensor
+behavior, API contracts, command-line exports, validation artifacts, and invalid
+inputs.
 
 ## Model assumptions and limitations
 
@@ -125,12 +164,12 @@ soft-sensor behavior, alarm activation, API contracts, and invalid-input handlin
 | Hydraulics | Constant molar overflow and fixed stage holdups | Tray sizing, pressure drop, and equipment holdup |
 | Feed | Saturated liquid | Flash-derived feed condition |
 | Heat balance | Temperature proxy from composition | Full enthalpy balances |
-| Control | Composition control with ideal analyzers plus injected faults | Temperature inferential control, valve dynamics, dead time |
-| Fidelity | Control-oriented educational model | Aspen Plus steady state and Aspen Plus Dynamics transients |
+| Control | Composition control with ideal analyzers plus injected faults | Temperature inference, valve dynamics, and dead time |
+| Fidelity | Control-oriented reduced-order model | Aspen Plus steady state and Aspen Plus Dynamics transients |
 
-These assumptions are features of the experiment design, not hidden claims. The
-reduced-order model remains useful after Aspen integration: it becomes the fast
-surrogate/control sandbox, while Aspen provides a rigorous reference.
+These assumptions are visible experimental choices, not hidden fidelity claims. The
+reduced-order model remains valuable after Aspen integration as a fast control
+sandbox, while Aspen becomes the rigorous reference.
 
 ## Aspen integration plan
 
@@ -140,13 +179,13 @@ The licensed work is designed as a short, high-value campus session:
 2. Export a steady-state operating point and sanitized reference data.
 3. Convert the case to Aspen Plus Dynamics and configure pressure-driven equipment.
 4. Run the same feed steps and faults defined in this repository.
-5. Compare steady states, transient trajectories, settling time, and integral error.
-6. Add a Windows COM adapter so Python can run repeatable Aspen experiments.
+5. Compare steady states, trajectories, settling time, and integral error.
+6. Add a Windows COM adapter for repeatable Python-orchestrated experiments.
 
 The exact checklist, data contract, and “do not overclaim” rules are in
-[docs/ASPEN_HANDOFF.md](docs/ASPEN_HANDOFF.md). No paid cloud service is required.
-GitHub Actions is sufficient for the open model's CI; Aspen itself stays on the
-licensed school machine/network.
+[docs/ASPEN_HANDOFF.md](docs/ASPEN_HANDOFF.md). No paid cloud service is required:
+GitHub Actions validates the open model, while Aspen remains on the licensed school
+machine and network.
 
 ## Repository map
 
@@ -156,21 +195,24 @@ src/distilltwin/
 ├── control.py      # PID with limits and anti-windup
 ├── scenarios.py    # closed-loop disturbances and faults
 ├── analytics.py    # soft sensor and residual monitoring
+├── validation.py   # physics, control, numerical, and fault benchmarks
 ├── api.py          # validated FastAPI service
 └── cli.py          # reproducible CSV experiment runner
-webapp/app.py       # recruiter-visible interactive control room
-tests/              # physics, controls, analytics, and API tests
-docs/               # architecture decisions and Aspen handoff
+webapp/app.py       # interactive Control Room and Validation Lab
+tests/              # physics, controls, analytics, interfaces, and validation
+docs/               # architecture, validation strategy, and Aspen handoff
+CHANGELOG.md        # portfolio-ready release history
 ~~~
 
 ## Skills demonstrated
 
-Chemical/process engineering, dynamic simulation, material balances, VLE,
-process control, PID tuning, numerical methods, disturbance testing, fault
-detection, time-series analysis, soft sensors, Python package design, FastAPI,
-Streamlit, Docker, GitHub Actions, automated testing, static typing, and technical
-documentation.
+Chemical/process engineering, dynamic simulation, component material balances, VLE,
+process control, PID tuning, numerical methods, convergence studies, disturbance
+testing, fault injection, anomaly detection, control-performance metrics, time-series
+analysis, soft sensors, experimental design, Python package design, FastAPI,
+Streamlit, Docker, GitHub Actions, CI/CD, automated testing, code coverage, static
+typing, dependency maintenance, and technical documentation.
 
-## License
+## Release and license
 
-MIT
+See [CHANGELOG.md](CHANGELOG.md) for the 1.0.0 portfolio release. Licensed under MIT.

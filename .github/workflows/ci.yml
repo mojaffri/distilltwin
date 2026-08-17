@@ -31,6 +31,16 @@ jobs:
       - run: ruff check .
       - run: mypy src
       - run: pytest
+      - name: Generate reproducible engineering validation
+        if: matrix.python-version == '3.12'
+        run: distilltwin-validate --output validation-report
+      - name: Upload validation evidence
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: distilltwin-validation-report
+          path: validation-report/
+          retention-days: 30
 
   container:
     runs-on: ubuntu-latest
@@ -41,7 +51,21 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: distilltwin:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
+      - name: Smoke-test containerized API
+        run: |
+          docker run --detach --name distilltwin-ci --publish 8000:8000 distilltwin:ci
+          for attempt in {1..20}; do
+            if curl --fail --silent http://localhost:8000/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs distilltwin-ci
+          exit 1
+      - name: Stop test container
+        if: always()
+        run: docker rm --force distilltwin-ci || true
