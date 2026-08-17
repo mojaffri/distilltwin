@@ -398,7 +398,8 @@ def render_markdown(report: ValidationReport) -> str:
 |---|---:|
 | Absolute light-key balance residual | {physics.material_balance_absolute_residual:.3e} |
 | Maximum nominal steady-state derivative | {physics.steady_state_max_derivative:.3e} |
-| Minimum steady-state composition | {physics.steady_state_min_composition:.5f} |\n| Maximum steady-state composition | {physics.steady_state_max_composition:.5f} |
+| Minimum steady-state composition | {physics.steady_state_min_composition:.5f} |
+| Maximum steady-state composition | {physics.steady_state_max_composition:.5f} |
 | Monotonic composition profile | {physics.steady_state_monotonic} |
 
 ## Disturbance-rejection benchmark
