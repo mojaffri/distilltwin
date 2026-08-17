@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "distilltwin"
-version = "0.1.0"
+version = "1.0.0"
 description = "An open, control-oriented distillation digital twin with an Aspen integration path."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -31,6 +31,7 @@ dev = [
 
 [project.scripts]
 distilltwin = "distilltwin.cli:main"
+distilltwin-validate = "distilltwin.validation:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -47,5 +48,5 @@ strict = true
 packages = ["distilltwin"]
 
 [tool.pytest.ini_options]
-addopts = "--strict-markers --cov=distilltwin --cov-report=term-missing"
+addopts = "--strict-markers --cov=distilltwin --cov-report=term-missing --cov-fail-under=90"
 testpaths = ["tests"]
