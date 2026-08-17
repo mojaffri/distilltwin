@@ -391,7 +391,7 @@ def render_markdown(report: ValidationReport) -> str:
         f"| {case.dt:.3f} | {case.samples} | "
         f"{case.final_top_absolute_difference:.3e} | "
         f"{case.final_bottom_absolute_difference:.3e} |"
-        for case in report.timestep_cases
+        for case in result.timestep_cases
     )
     return f"""# DistillTwin validation report
 
@@ -442,17 +442,18 @@ Generated deterministically by `distilltwin-validate`.
 
 def write_validation_bundle(
     output_directory: str | Path = "validation-report",
+    report: ValidationReport | None = None,
 ) -> tuple[Path, Path]:
     """Write Markdown and JSON evidence plus tabular CSV data."""
     output = Path(output_directory)
     output.mkdir(parents=True, exist_ok=True)
-    report = generate_validation_report()
+    result = report or generate_validation_report()
     markdown_path = output / "VALIDATION_REPORT.md"
     json_path = output / "validation_report.json"
-    markdown_path.write_text(render_markdown(report), encoding="utf-8")
-    json_path.write_text(json.dumps(report.to_dict(), indent=2) + "\n", encoding="utf-8")
-    pd.DataFrame(report.control.rows()).to_csv(output / "control_benchmark.csv", index=False)
-    pd.DataFrame([case.to_dict() for case in report.timestep_cases]).to_csv(
+    markdown_path.write_text(render_markdown(result), encoding="utf-8")
+    json_path.write_text(json.dumps(result.to_dict(), indent=2) + "\n", encoding="utf-8")
+    pd.DataFrame(result.control.rows()).to_csv(output / "control_benchmark.csv", index=False)
+    pd.DataFrame([case.to_dict() for case in result.timestep_cases]).to_csv(
         output / "timestep_sensitivity.csv",
         index=False,
     )
@@ -470,8 +471,8 @@ def main() -> None:
         help="Directory for Markdown, JSON, and CSV results.",
     )
     args = parser.parse_args()
-    markdown_path, json_path = write_validation_bundle(args.output)
     report = generate_validation_report()
+    markdown_path, json_path = write_validation_bundle(args.output, report)
     print(render_markdown(report))
     print(f"Wrote {markdown_path} and {json_path}")
 
