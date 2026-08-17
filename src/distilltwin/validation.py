@@ -391,7 +391,7 @@ def render_markdown(report: ValidationReport) -> str:
         f"| {case.dt:.3f} | {case.samples} | "
         f"{case.final_top_absolute_difference:.3e} | "
         f"{case.final_bottom_absolute_difference:.3e} |"
-        for case in result.timestep_cases
+        for case in report.timestep_cases
     )
     return f"""# DistillTwin validation report
 
