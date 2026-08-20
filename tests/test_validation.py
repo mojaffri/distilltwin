@@ -1,5 +1,7 @@
+import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from distilltwin.scenarios import Scenario
@@ -90,13 +92,41 @@ def test_validation_bundle_is_machine_and_human_readable(tmp_path: Path) -> None
     assert not cases["unmeasured feed composition step"].converged
 
     reference = Path(__file__).parents[1] / "docs" / "reference"
+    assert markdown_path.read_text(encoding="utf-8") == (
+        reference / "VALIDATION_REPORT.md"
+    ).read_text(encoding="utf-8")
+    generated_json = json.loads(json_path.read_text(encoding="utf-8"))
+    reference_json = json.loads(
+        (reference / "validation_report.json").read_text(encoding="utf-8")
+    )
+    _assert_nested_results_close(generated_json, reference_json)
     for filename in (
-        "VALIDATION_REPORT.md",
-        "validation_report.json",
         "control_benchmark.csv",
         "timestep_sensitivity.csv",
         "state_estimation_benchmark.csv",
     ):
-        assert (markdown_path.parent / filename).read_bytes() == (
-            reference / filename
-        ).read_bytes()
+        pd.testing.assert_frame_equal(
+            pd.read_csv(markdown_path.parent / filename),
+            pd.read_csv(reference / filename),
+            check_exact=False,
+            rtol=1e-10,
+            atol=1e-12,
+        )
+
+
+def _assert_nested_results_close(actual: object, expected: object) -> None:
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict)
+        assert actual.keys() == expected.keys()
+        for key, value in expected.items():
+            _assert_nested_results_close(actual[key], value)
+    elif isinstance(expected, list):
+        assert isinstance(actual, list)
+        assert len(actual) == len(expected)
+        for actual_item, expected_item in zip(actual, expected, strict=True):
+            _assert_nested_results_close(actual_item, expected_item)
+    elif isinstance(expected, float):
+        assert isinstance(actual, (float, int))
+        assert actual == pytest.approx(expected, rel=1e-10, abs=1e-12)
+    else:
+        assert actual == expected

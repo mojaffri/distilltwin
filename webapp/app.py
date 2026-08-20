@@ -77,6 +77,13 @@ def cached_validation_report() -> object:
 
 
 with validation_tab:
+    st.subheader("Reproducible validation")
+    if not st.button("Run validation benchmarks", type="primary"):
+        st.caption(
+            "Run the deterministic physics, control, estimator, numerical, and fault "
+            "benchmarks when you want to recompute the stored reference results."
+        )
+        st.stop()
     report = cached_validation_report()
     physics = report.physics
     fault = report.fault_detection
