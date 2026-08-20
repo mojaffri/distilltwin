@@ -240,7 +240,8 @@ class ExtendedKalmanFilter:
         stable = (eigenvectors * floored) @ eigenvectors.T
         if not np.all(np.isfinite(stable)):
             raise FloatingPointError("EKF covariance produced non-finite values")
-        return stable.astype(np.float64)
+        stabilized: FloatArray = stable.astype(np.float64)
+        return stabilized
 
 
 def local_observability_rank(
