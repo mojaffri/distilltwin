@@ -1,8 +1,8 @@
 # Validated reference results
 
-These deterministic results were generated in GitHub Actions on 2026-08-17 from the
-1.0.0 validation suite. The full Markdown, JSON, and CSV bundle is also retained as a
-workflow artifact for each successful run.
+These deterministic results were generated locally on 2026-08-20 from the feature
+branch validation suite. The structured reference bundle is stored under
+[`docs/reference/`](reference/) and CI recreates it as a workflow artifact.
 
 > **Boundary:** this is Aspen-independent verification of the transparent reduced-order
 > model. It does not claim agreement with Aspen or plant data.
@@ -47,6 +47,26 @@ Final products are compared with a `dt = 0.05 min` reference.
 Every tested final-product difference is below `6.3e-05`, and the `dt = 0.1 min`
 case differs from the fine reference by less than `9e-06`.
 
+## Extended Kalman filter
+
+The EKF estimates eight stage compositions from top and bottom composition plus the
+temperature proxies on stages 2 and 5. The local observability matrix at the nominal
+point has rank 8. Feed disturbances are deliberately unmeasured in their named cases.
+
+| Scenario | Overall RMSE | Post-step RMSE | Transient RMSE | Peak state RMSE | Convergence delay | Converged |
+|---|---:|---:|---:|---:|---:|---:|
+| Nominal | 0.001913 | 0.000237 | 0.000134 | 0.012863 | 0.00 min | Yes |
+| Unmeasured feed-composition step | 0.015060 | 0.018259 | 0.010747 | 0.023438 | 16.00 min | No |
+| Unmeasured feed-rate step | 0.005990 | 0.006942 | 0.004174 | 0.012863 | 0.00 min | Yes |
+| Sensor noise at 3x reference standard deviations | 0.004345 | 0.000710 | 0.000405 | 0.026232 | 0.00 min | Yes |
+| Model mismatch and unmeasured feed-composition step | 0.013775 | 0.016420 | 0.010960 | 0.020416 | 16.00 min | No |
+
+The mismatch case uses plant relative volatility `2.20` versus estimator value `2.40`
+and plant holdups 15% above the estimator model. Convergence requires the instantaneous
+eight-state RMSE to remain at or below `0.02` for the rest of the run. The unmeasured
+feed-composition and mismatch cases do not meet that definition. Per-stage values are
+stored in [`reference/state_estimation_benchmark.csv`](reference/state_estimation_benchmark.csv).
+
 ## Known-fault benchmark
 
 | Metric | Result |
@@ -57,18 +77,20 @@ case differs from the fine reference by less than `9e-06`.
 | Pre-fault false-alarm fraction | 0.000% |
 | Post-fault alarm fraction | 98.010% |
 
-This deterministic injection verifies functional behavior. It is not a statistical
-claim about noisy industrial data.
+The top-analyzer residual uses a reference EKF corrected from the bottom composition
+and two selected tray temperatures. It does not use the hidden top state. This
+deterministic injection verifies functional behavior; it is not a statistical claim
+about noisy industrial data.
 
 ## Software evidence from the same commit
 
-- 23 automated tests passed on Python 3.11 and 3.12.
-- Measured line coverage: **93.18%**, above the enforced 90% gate.
+- 34 automated tests passed locally on Python 3.12.
+- Measured line coverage: **92.28%**, above the enforced 90% gate.
 - Ruff and strict Mypy passed.
-- The production Docker image built successfully.
-- CI launched the image and received a successful response from the real `/health`
-  endpoint.
-- Four validation artifacts were generated and uploaded: Markdown, JSON, and two CSVs.
+- The Streamlit application completed an AppTest smoke run and rendered the EKF table.
+- Docker build and container smoke results remain those of the preceding `main` commit
+  until this branch runs in GitHub Actions.
+- Five validation artifacts are generated: Markdown, JSON, and three CSVs.
 
 Reproduce these results with:
 

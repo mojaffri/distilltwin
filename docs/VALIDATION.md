@@ -1,7 +1,7 @@
 # Validation strategy
 
 DistillTwin separates **verification**, **reduced-order validation**, and future
-**high-fidelity validation** so that the evidence remains technically honest.
+**high-fidelity validation** so each claim is tied to its evidence level.
 
 ## Evidence levels
 
@@ -11,6 +11,7 @@ DistillTwin separates **verification**, **reduced-order validation**, and future
 | Physics verification | Do the implemented equations conserve the light key and reach a stationary solution? | Balance-closure and steady-state residual metrics |
 | Numerical verification | Is the reported trajectory insensitive to a smaller RK4 timestep? | Automated timestep-sensitivity study |
 | Control validation | Do the PID loops improve disturbance rejection versus fixed manipulated variables? | Open-loop/PID IAE, ISE, peak, final-error, and settling-time comparison |
+| State-estimation validation | Can partial measurements reconstruct hidden stage states under defined disturbances, noise, and mismatch? | Per-stage and aggregate EKF RMSE, transient error, convergence, and local observability rank |
 | Fault-monitor validation | Does the EWMA monitor detect a known analyzer bias without pre-fault alarms? | Detection delay, false-alarm fraction, and post-fault alarm fraction |
 | Commercial-simulator validation | Does the reduced-order model agree with rigorous thermodynamics and equipment dynamics? | Planned Aspen Plus/Dynamics comparison; not yet claimed |
 | Plant validation | Does the model match real operating data? | Out of scope until appropriate data is available |
@@ -28,7 +29,8 @@ This produces:
 - `VALIDATION_REPORT.md` for a human-readable review;
 - `validation_report.json` for programmatic inspection;
 - `control_benchmark.csv` for the open-loop/PID comparison; and
-- `timestep_sensitivity.csv` for numerical convergence evidence.
+- `timestep_sensitivity.csv` for numerical convergence evidence; and
+- `state_estimation_benchmark.csv` for per-stage EKF errors in each case.
 
 CI runs the same command on every pull request and uploads the bundle from Python
 3.12 as a workflow artifact. The test suite also enforces the physical and performance
@@ -61,11 +63,26 @@ Closed-loop scenarios are repeated at several timesteps and compared with a
 discretization sensitivity without pretending that timestep agreement proves model
 fidelity.
 
+### State estimation
+
+The hidden simulated plant exposes top and bottom composition and two selected
+temperature signals. Four internal stage compositions are not measured. Five
+deterministic experiments cover nominal operation, unmeasured feed-composition and
+feed-rate steps, three-times-reference sensor noise, and combined relative-volatility
+and holdup mismatch. All cases start with the same defined estimator offset.
+
+The nominal local observability rank is reported alongside overall, post-disturbance,
+transient, peak, and per-stage RMSE. Convergence requires instantaneous state RMSE at
+or below `0.02` for every remaining sample. Full equations and assumptions are in
+[`STATE_ESTIMATION.md`](STATE_ESTIMATION.md).
+
 ### Fault detection
 
-A persistent +0.05 top-analyzer bias is injected at a known time. Detection delay,
-pre-fault false-alarm fraction, and post-fault alarm fraction are reported. This is a
-deterministic functional benchmark, not a claim about performance on noisy plant data.
+A persistent +0.05 top-analyzer bias is injected at a known time. The residual is
+formed against a reference EKF that does not use the top analyzer as a correction
+signal. Detection delay, pre-fault false-alarm fraction, and post-fault alarm fraction
+are reported. This is a deterministic functional benchmark, not a claim about
+performance on noisy plant data.
 
 ## Acceptance gates
 
@@ -78,6 +95,9 @@ The automated suite requires:
 - improved top-composition IAE under paired PID control;
 - final top and bottom product differences below `5e-4` across every tested
   timestep and below `5e-5` at `dt = 0.1 min`; and
+- local observability rank equal to the eight-state dimension for the reference
+  measurement set;
+- finite, reproducible EKF metrics with nominal overall state RMSE below `0.003`; and
 - detection of the known analyzer bias without pre-fault false alarms.
 
 These thresholds are deliberately tied to the transparent model's stated assumptions.

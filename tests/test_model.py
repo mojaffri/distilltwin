@@ -48,3 +48,26 @@ def test_configuration_requires_interior_feed_stage() -> None:
     with pytest.raises(ValueError, match="interior"):
         ColumnConfig(feed_stage=0)
 
+
+def test_nonfinite_inputs_and_nonphysical_states_are_rejected() -> None:
+    column = DistillationColumn()
+    with pytest.raises(ValueError, match="finite"):
+        column.derivatives(
+            np.linspace(0.1, 0.9, column.config.n_stages),
+            ColumnInputs(np.nan, 0.5, 2.5, 3.0),
+        )
+    with pytest.raises(ValueError, match="between zero and one"):
+        column.step(np.full(column.config.n_stages, 1.1), column.nominal_inputs, 0.1)
+    with pytest.raises(ValueError, match="finite and positive"):
+        column.step(column.steady_state(), column.nominal_inputs, np.nan)
+
+
+def test_unstable_timestep_is_not_hidden_by_state_clipping() -> None:
+    column = DistillationColumn()
+    with pytest.raises((ValueError, FloatingPointError)):
+        column.step(
+            np.linspace(0.1, 0.9, column.config.n_stages),
+            column.nominal_inputs,
+            10.0,
+        )
+

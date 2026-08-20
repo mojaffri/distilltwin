@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 import numpy as np
 import pandas as pd
 
 from distilltwin.analytics import EWMAResidualMonitor
 from distilltwin.control import PIDConfig, PIDController
+from distilltwin.estimation import ExtendedKalmanFilter, MeasurementConfig, MeasurementModel
 from distilltwin.model import ColumnInputs, DistillationColumn
 
 
@@ -25,6 +27,17 @@ class Scenario:
     reflux_effectiveness_after: float = 1.0
 
     def __post_init__(self) -> None:
+        values = (
+            self.duration,
+            self.dt,
+            self.disturbance_at,
+            self.feed_composition_after,
+            self.feed_rate_after,
+            self.top_sensor_bias_after,
+            self.reflux_effectiveness_after,
+        )
+        if not all(isfinite(value) for value in values):
+            raise ValueError("scenario values must be finite")
         if self.duration <= 0 or self.dt <= 0:
             raise ValueError("duration and dt must be positive")
         if not 0.0 <= self.disturbance_at <= self.duration:
@@ -37,12 +50,21 @@ class Scenario:
             raise ValueError("reflux effectiveness must be between 0.5 and 1.0")
 
 
-def _project_boilup(commanded_boilup: float, reflux: float, feed_rate: float) -> float:
-    """Keep both product flows positive without assuming a nominal feed rate."""
+def _boilup_limits(
+    reflux: float,
+    feed_rate: float,
+    configured_minimum: float,
+    configured_maximum: float,
+) -> tuple[float, float]:
+    """Combine operating limits with stricter product-flow feasibility limits."""
     margin = min(0.05, feed_rate / 4.0)
-    lower = reflux + margin
-    upper = reflux + feed_rate - margin
-    return min(upper, max(lower, commanded_boilup))
+    physical_minimum = reflux + margin
+    physical_maximum = reflux + feed_rate - margin
+    lower = max(configured_minimum, physical_minimum)
+    upper = min(configured_maximum, physical_maximum)
+    if lower >= upper:
+        return physical_minimum, physical_maximum
+    return lower, upper
 
 
 class ScenarioRunner:
@@ -77,6 +99,19 @@ class ScenarioRunner:
                 action=-1.0,
             )
         )
+        observer_column = DistillationColumn(cfg)
+        observer_measurements = MeasurementModel(
+            observer_column,
+            MeasurementConfig(
+                composition_stages=(0,),
+                temperature_stages=(cfg.n_stages // 3, 2 * cfg.n_stages // 3),
+            ),
+        )
+        observer = ExtendedKalmanFilter(
+            observer_column,
+            observer_measurements,
+            initial_state=observer_column.steady_state(),
+        )
         monitor = EWMAResidualMonitor()
         records: list[dict[str, float | bool]] = []
 
@@ -99,16 +134,27 @@ class ScenarioRunner:
                 dt=scenario.dt,
             )
             reflux = commanded_reflux * effectiveness
+            boilup_minimum, boilup_maximum = _boilup_limits(
+                reflux,
+                feed_rate,
+                bottom_controller.config.output_min,
+                bottom_controller.config.output_max,
+            )
             commanded_boilup = bottom_controller.update(
                 setpoint=bottom_setpoint,
                 measurement=measured_bottom,
                 dt=scenario.dt,
+                output_min=boilup_minimum,
+                output_max=boilup_maximum,
             )
-            boilup = _project_boilup(commanded_boilup, reflux, feed_rate)
+            boilup = commanded_boilup
 
             inputs = ColumnInputs(feed_rate, feed_composition, reflux, boilup)
             temperatures = self.column.temperature_proxy(state)
-            ewma, alarm = monitor.update(measured_top - float(state[-1]))
+            observer_measurement = observer_measurements.observe(state)
+            estimated_state = observer.correct(observer_measurement).state
+            top_residual = measured_top - float(estimated_state[-1])
+            ewma, alarm = monitor.update(top_residual)
             records.append(
                 {
                     "time": float(time),
@@ -119,6 +165,8 @@ class ScenarioRunner:
                     "bottom_setpoint": bottom_setpoint,
                     "temperature_bottom": float(temperatures[0]),
                     "temperature_top": float(temperatures[-1]),
+                    "estimated_x_bottom": float(estimated_state[0]),
+                    "estimated_x_top": float(estimated_state[-1]),
                     "feed_rate": feed_rate,
                     "feed_composition": feed_composition,
                     "reflux_command": commanded_reflux,
@@ -129,5 +177,6 @@ class ScenarioRunner:
                 }
             )
             state = self.column.step(state, inputs, scenario.dt)
+            observer.predict(inputs, scenario.dt)
 
         return pd.DataFrame.from_records(records)

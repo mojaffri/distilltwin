@@ -129,6 +129,41 @@ with validation_tab:
         hide_index=True,
     )
 
+    st.subheader("EKF state-estimation benchmark")
+    st.caption(
+        "Eight stage compositions reconstructed from top/bottom composition and two "
+        "selected temperature signals. Feed disturbances are unmeasured in their named "
+        "cases; the mismatch case changes hidden-plant volatility and holdup."
+    )
+    estimation_frame = pd.DataFrame(
+        [
+            {
+                "scenario": case.scenario.name,
+                "observability_rank": case.observability_rank,
+                "overall_rmse": case.metrics.overall_rmse,
+                "post_disturbance_rmse": case.metrics.post_disturbance_rmse,
+                "transient_rmse": case.metrics.transient_rmse,
+                "peak_state_rmse": case.metrics.peak_state_rmse,
+                "convergence_delay": case.metrics.convergence_delay,
+                "converged": case.metrics.converged,
+            }
+            for case in report.state_estimation.cases
+        ]
+    )
+    st.dataframe(
+        estimation_frame.style.format(
+            {
+                "overall_rmse": "{:.6f}",
+                "post_disturbance_rmse": "{:.6f}",
+                "transient_rmse": "{:.6f}",
+                "peak_state_rmse": "{:.6f}",
+                "convergence_delay": "{:.2f}",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
     left, right = st.columns(2)
     with left:
         st.subheader("RK4 timestep sensitivity")

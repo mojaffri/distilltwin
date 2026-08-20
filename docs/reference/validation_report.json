@@ -1,0 +1,188 @@
+{
+  "scope": "Aspen-independent verification of the reduced-order model; not commercial-simulator or plant validation",
+  "physics": {
+    "material_balance_absolute_residual": 1.3877787807814457e-17,
+    "steady_state_max_derivative": 1.9987407862132044e-08,
+    "steady_state_min_composition": 0.07480242921827626,
+    "steady_state_max_composition": 0.9251986904568138,
+    "steady_state_monotonic": true
+  },
+  "control": {
+    "open_loop_top": {
+      "iae": 0.32307799025722683,
+      "ise": 0.005032845966287812,
+      "peak_absolute_error": 0.022356852564451857,
+      "final_absolute_error": 0.022356852564451857,
+      "settling_time": 30.0,
+      "settled": false
+    },
+    "closed_loop_top": {
+      "iae": 0.23717667036095064,
+      "ise": 0.00249145537942496,
+      "peak_absolute_error": 0.012845525213744047,
+      "final_absolute_error": 0.012837871666562362,
+      "settling_time": 30.0,
+      "settled": false
+    },
+    "open_loop_bottom": {
+      "iae": 0.4893325797845744,
+      "ise": 0.012315032290025228,
+      "peak_absolute_error": 0.03839430587572841,
+      "final_absolute_error": 0.03839430587572841,
+      "settling_time": 30.0,
+      "settled": false
+    },
+    "closed_loop_bottom": {
+      "iae": 0.21469498162534922,
+      "ise": 0.0019565110593250654,
+      "peak_absolute_error": 0.010608517069672974,
+      "final_absolute_error": 0.009305998419219738,
+      "settling_time": 27.300000000000004,
+      "settled": true
+    }
+  },
+  "numerics": {
+    "reference_dt": 0.05,
+    "cases": [
+      {
+        "dt": 0.4,
+        "samples": 76,
+        "final_top_absolute_difference": 4.001586217383668e-05,
+        "final_bottom_absolute_difference": 6.22692622060661e-05
+      },
+      {
+        "dt": 0.2,
+        "samples": 151,
+        "final_top_absolute_difference": 1.711375274715543e-05,
+        "final_bottom_absolute_difference": 2.6451302289773326e-05
+      },
+      {
+        "dt": 0.1,
+        "samples": 301,
+        "final_top_absolute_difference": 5.698706610823834e-06,
+        "final_bottom_absolute_difference": 8.77822656369931e-06
+      }
+    ]
+  },
+  "fault_detection": {
+    "injected_bias": 0.05,
+    "detection_delay": 0.40000000000000036,
+    "false_alarm_fraction": 0.0,
+    "post_fault_alarm_fraction": 0.9800995024875622,
+    "detected": true
+  },
+  "state_estimation": {
+    "state_dimension": 8,
+    "measured_signal_count": 4,
+    "composition_stages": [
+      7,
+      0
+    ],
+    "temperature_stages": [
+      2,
+      5
+    ],
+    "cases": [
+      {
+        "scenario": "nominal",
+        "observability_rank": 8,
+        "overall_rmse": 0.0019134578754871217,
+        "post_disturbance_rmse": 0.00023662640225870246,
+        "transient_rmse": 0.00013445725685069077,
+        "peak_state_rmse": 0.012863396366261713,
+        "convergence_delay": 0.0,
+        "converged": true,
+        "per_stage_rmse": [
+          0.0006242414954007912,
+          0.002542582126261998,
+          0.0005758436797984764,
+          0.00213531168762527,
+          0.0020816614224179425,
+          0.0007933698735749956,
+          0.0035231894097548944,
+          0.0004115840363532671
+        ]
+      },
+      {
+        "scenario": "unmeasured feed composition step",
+        "observability_rank": 8,
+        "overall_rmse": 0.015059895094321858,
+        "post_disturbance_rmse": 0.018258895610082315,
+        "transient_rmse": 0.0107468526445923,
+        "peak_state_rmse": 0.02343827504481439,
+        "convergence_delay": 16.0,
+        "converged": false,
+        "per_stage_rmse": [
+          0.0015663819905762269,
+          0.005463524956716737,
+          0.01153135240067465,
+          0.021241802896172085,
+          0.030576131342570888,
+          0.01501186721272523,
+          0.006093736614982761,
+          0.0007238750106039067
+        ]
+      },
+      {
+        "scenario": "unmeasured feed rate step",
+        "observability_rank": 8,
+        "overall_rmse": 0.005990378341742979,
+        "post_disturbance_rmse": 0.0069420494219718165,
+        "transient_rmse": 0.00417417906810903,
+        "peak_state_rmse": 0.012863396366261713,
+        "convergence_delay": 0.0,
+        "converged": true,
+        "per_stage_rmse": [
+          0.004451467140330182,
+          0.008474495060810834,
+          0.010106490663567884,
+          0.008397632974740277,
+          0.003049493208167248,
+          0.0009000356064898185,
+          0.0035297886240358194,
+          0.0004627757766238912
+        ]
+      },
+      {
+        "scenario": "sensor noise",
+        "observability_rank": 8,
+        "overall_rmse": 0.004345109357557026,
+        "post_disturbance_rmse": 0.0007104873259092631,
+        "transient_rmse": 0.0004054194697720863,
+        "peak_state_rmse": 0.026231909187598212,
+        "convergence_delay": 0.0,
+        "converged": true,
+        "per_stage_rmse": [
+          0.001845187270914052,
+          0.0045650143582106305,
+          0.0017777948145276338,
+          0.0061990868750438285,
+          0.0056841010273764635,
+          0.002370635736491539,
+          0.0067600109547712155,
+          0.0012569135203118608
+        ]
+      },
+      {
+        "scenario": "model mismatch",
+        "observability_rank": 8,
+        "overall_rmse": 0.013775311931759737,
+        "post_disturbance_rmse": 0.016419982470089474,
+        "transient_rmse": 0.010960122880026403,
+        "peak_state_rmse": 0.02041562172835197,
+        "convergence_delay": 16.0,
+        "converged": false,
+        "per_stage_rmse": [
+          0.01093222820298909,
+          0.014006056854417017,
+          0.015456368512425066,
+          0.017926963007377474,
+          0.02272130582665611,
+          0.006076122245989173,
+          0.0067602212170266565,
+          0.00657552942867122
+        ]
+      }
+    ]
+  }
+}

@@ -2,9 +2,30 @@
 
 All notable changes to DistillTwin are documented here.
 
+## Unreleased
+
+### State estimation
+
+- Added a configurable partial-measurement model and discrete extended Kalman filter
+- Added the analytical stage-balance Jacobian and its RK4 state-transition propagation
+- Added hidden-plant benchmarks for nominal operation, unmeasured feed disturbances,
+  sensor noise, relative-volatility mismatch, and holdup mismatch
+- Added overall, transient, peak, convergence, and per-stage RMSE outputs
+- Replaced the analyzer residual's use of hidden simulator truth with a reference EKF
+- Removed the unbenchmarked ridge soft-sensor utility and its synthetic-only test
+
+### Correctness and verification
+
+- Reject non-finite model, controller, scenario, and API values
+- Reject integration steps that leave the physical composition domain
+- Apply product-flow feasibility as active PID limits so the integral term does not
+  wind up against a downstream projection
+- Added estimator, analytical-linearization, invalid-state, dynamic-limit, API, and
+  interface regression tests
+
 ## 1.0.0 — 2026-08-17
 
-First portfolio-ready release of the open, control-oriented digital twin.
+First release of the open, control-oriented digital twin.
 
 ### Engineering model
 
@@ -23,7 +44,7 @@ First portfolio-ready release of the open, control-oriented digital twin.
 - RK4 timestep-sensitivity study against a finer reference
 - Known analyzer-bias detection delay and false-alarm measurements
 - Reproducible Markdown, JSON, and CSV validation bundle
-- Recruiter-visible Streamlit Validation Lab
+- Streamlit validation lab
 
 ### Software delivery
 

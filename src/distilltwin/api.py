@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from distilltwin import __version__
 from distilltwin.scenarios import Scenario, ScenarioRunner
@@ -17,8 +20,25 @@ app = FastAPI(
 )
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_error_response(
+    _request: Request, exception: RequestValidationError
+) -> JSONResponse:
+    """Return JSON-safe validation details even when the rejected input is NaN."""
+    details: list[dict[str, Any]] = []
+    for error in exception.errors():
+        details.append(
+            {
+                "type": str(error.get("type", "value_error")),
+                "loc": list(error.get("loc", ())),
+                "msg": str(error.get("msg", "Invalid request")),
+            }
+        )
+    return JSONResponse(status_code=422, content={"detail": details})
+
+
 class ScenarioRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     duration: float = Field(default=60.0, gt=0, le=240)
     dt: float = Field(default=0.1, ge=0.02, le=1.0)
@@ -57,6 +77,8 @@ def metadata() -> dict[str, Any]:
             "feed disturbances",
             "sensor bias and actuator effectiveness faults",
             "online EWMA residual alarms",
+            "extended Kalman filtering from partial stage measurements",
+            "hidden-plant state-estimation benchmarks with model mismatch",
         ],
     }
 
