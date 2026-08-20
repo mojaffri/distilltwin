@@ -1,8 +1,9 @@
 """Control-oriented dynamic model of a binary distillation column.
 
 The model applies component balances to equilibrium stages under constant molar
-overflow. It is deliberately transparent and fast enough for control and fault
-experiments. It is not a substitute for a rate-based Aspen Plus model.
+overflow. It is intended for control, fault, and numerical experiments within the
+assumptions documented in the repository. Aspen and plant-data comparisons are
+tracked separately.
 """
 
 from __future__ import annotations
@@ -37,10 +38,34 @@ class ColumnConfig:
             raise ValueError("n_stages must include at least four equilibrium stages")
         if not 1 <= self.feed_stage <= self.n_stages - 2:
             raise ValueError("feed_stage must be an interior stage")
+
+        numeric_values = np.array(
+            [
+                self.relative_volatility,
+                self.tray_holdup,
+                self.condenser_holdup,
+                self.reboiler_holdup,
+                self.nominal_feed,
+                self.nominal_feed_composition,
+                self.nominal_reflux,
+                self.nominal_boilup,
+            ],
+            dtype=float,
+        )
+        if not np.isfinite(numeric_values).all():
+            raise ValueError("column configuration values must be finite")
         if self.relative_volatility <= 1.0:
             raise ValueError("relative_volatility must exceed one for the light key")
         if min(self.tray_holdup, self.condenser_holdup, self.reboiler_holdup) <= 0:
             raise ValueError("stage holdups must be positive")
+        if self.nominal_feed <= 0 or self.nominal_reflux <= 0 or self.nominal_boilup <= 0:
+            raise ValueError("nominal flows must be positive")
+        if not 0.0 <= self.nominal_feed_composition <= 1.0:
+            raise ValueError("nominal_feed_composition must be between zero and one")
+        distillate = self.nominal_boilup - self.nominal_reflux
+        bottoms = self.nominal_reflux + self.nominal_feed - self.nominal_boilup
+        if distillate <= 0 or bottoms <= 0:
+            raise ValueError("nominal flows must produce positive distillate and bottoms products")
 
 
 @dataclass(frozen=True)
@@ -53,6 +78,12 @@ class ColumnInputs:
     boilup_flow: float
 
     def validate(self) -> None:
+        values = np.array(
+            [self.feed_rate, self.feed_composition, self.reflux_flow, self.boilup_flow],
+            dtype=float,
+        )
+        if not np.isfinite(values).all():
+            raise ValueError("column inputs must be finite")
         if self.feed_rate <= 0 or self.reflux_flow <= 0 or self.boilup_flow <= 0:
             raise ValueError("all flows must be positive")
         if not 0.0 <= self.feed_composition <= 1.0:
@@ -79,26 +110,44 @@ class DistillationColumn:
             boilup_flow=cfg.nominal_boilup,
         )
 
+    def _coerce_state(self, state: FloatArray, *, require_physical: bool) -> FloatArray:
+        x = np.asarray(state, dtype=float)
+        if x.shape != (self.config.n_stages,):
+            raise ValueError(f"state must have shape ({self.config.n_stages},)")
+        if not np.isfinite(x).all():
+            raise ValueError("state must contain only finite compositions")
+        if require_physical and np.any((x < 0.0) | (x > 1.0)):
+            raise ValueError("state compositions must be between zero and one")
+        return x.astype(np.float64, copy=False)
+
     def equilibrium_vapor(self, liquid_composition: FloatArray) -> FloatArray:
         """Return vapor composition from a constant-relative-volatility VLE relation."""
         alpha = self.config.relative_volatility
         x = np.asarray(liquid_composition, dtype=float)
-        return alpha * x / (1.0 + (alpha - 1.0) * x)
+        if not np.isfinite(x).all():
+            raise ValueError("liquid composition must contain only finite values")
+        if np.any((x < 0.0) | (x > 1.0)):
+            raise ValueError("liquid composition must be between zero and one")
+        return (alpha * x / (1.0 + (alpha - 1.0) * x)).astype(np.float64)
 
     def temperature_proxy(self, liquid_composition: FloatArray) -> FloatArray:
         """Map composition to an illustrative normal-boiling temperature signal in Celsius."""
         x = np.asarray(liquid_composition, dtype=float)
-        return 110.6 - 30.5 * x
+        if not np.isfinite(x).all():
+            raise ValueError("liquid composition must contain only finite values")
+        if np.any((x < 0.0) | (x > 1.0)):
+            raise ValueError("liquid composition must be between zero and one")
+        return (110.6 - 30.5 * x).astype(np.float64)
 
     def derivatives(self, state: FloatArray, inputs: ColumnInputs) -> FloatArray:
         """Evaluate stage light-key component balances."""
         inputs.validate()
         cfg = self.config
-        x = np.asarray(state, dtype=float)
-        if x.shape != (cfg.n_stages,):
-            raise ValueError(f"state must have shape ({cfg.n_stages},)")
+        x = self._coerce_state(state, require_physical=False)
+        y = cfg.relative_volatility * x / (1.0 + (cfg.relative_volatility - 1.0) * x)
+        if not np.isfinite(y).all():
+            raise ValueError("VLE evaluation produced a non-finite intermediate state")
 
-        y = self.equilibrium_vapor(x)
         derivative = np.zeros_like(x)
         feed = inputs.feed_rate
         reflux = inputs.reflux_flow
@@ -127,14 +176,16 @@ class DistillationColumn:
 
     def step(self, state: FloatArray, inputs: ColumnInputs, dt: float) -> FloatArray:
         """Advance the model one step with fourth-order Runge-Kutta integration."""
-        if dt <= 0:
-            raise ValueError("dt must be positive")
-        x = np.asarray(state, dtype=float)
+        if not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be a finite positive value")
+        x = self._coerce_state(state, require_physical=True)
         k1 = self.derivatives(x, inputs)
         k2 = self.derivatives(x + 0.5 * dt * k1, inputs)
         k3 = self.derivatives(x + 0.5 * dt * k2, inputs)
         k4 = self.derivatives(x + dt * k3, inputs)
         next_state = x + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+        if not np.isfinite(next_state).all():
+            raise RuntimeError("integration produced a non-finite state")
         return np.clip(next_state, 0.0, 1.0).astype(np.float64)
 
     def steady_state(
@@ -145,7 +196,12 @@ class DistillationColumn:
         max_steps: int = 50_000,
     ) -> FloatArray:
         """Numerically settle the column at fixed inputs."""
+        if not np.isfinite(tolerance) or tolerance <= 0:
+            raise ValueError("tolerance must be a finite positive value")
+        if max_steps < 1:
+            raise ValueError("max_steps must be at least 1")
         fixed_inputs = inputs or self.nominal_inputs
+        fixed_inputs.validate()
         state = np.linspace(0.08, 0.92, self.config.n_stages, dtype=float)
         for _ in range(max_steps):
             updated = self.step(state, fixed_inputs, 0.05)
@@ -163,16 +219,19 @@ class DistillationColumn:
         initial_state: FloatArray | None = None,
     ) -> pd.DataFrame:
         """Run an open-loop simulation and return a tidy time-series frame."""
-        if duration <= 0:
-            raise ValueError("duration must be positive")
+        if not np.isfinite(duration) or duration <= 0:
+            raise ValueError("duration must be a finite positive value")
+        if not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be a finite positive value")
         state = (
             self.steady_state()
             if initial_state is None
-            else np.asarray(initial_state, dtype=float)
+            else self._coerce_state(initial_state, require_physical=True)
         )
         records: list[dict[str, float]] = []
         for time in np.arange(0.0, duration + dt / 2.0, dt):
             inputs = input_schedule(float(time))
+            inputs.validate()
             temperatures = self.temperature_proxy(state)
             records.append(
                 {
