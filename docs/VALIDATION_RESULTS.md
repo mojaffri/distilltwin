@@ -84,13 +84,14 @@ about noisy industrial data.
 
 ## Software evidence from the same commit
 
-- 34 automated tests passed locally on Python 3.12.
+- 34 automated tests passed in GitHub Actions on Python 3.11 and 3.12.
 - Measured line coverage: **92.28%**, above the enforced 90% gate.
 - Ruff and strict Mypy passed.
-- The Streamlit application completed an AppTest smoke run and rendered the EKF table.
-- Docker build and container smoke results remain those of the preceding `main` commit
-  until this branch runs in GitHub Actions.
-- Five validation artifacts are generated: Markdown, JSON, and three CSVs.
+- The Streamlit application completed an AppTest startup smoke run and exposed the
+  validation action.
+- The production Docker image built successfully and returned a successful response
+  from its live `/health` endpoint.
+- Five validation artifacts were generated and uploaded: Markdown, JSON, and three CSVs.
 
 Reproduce these results with:
 
