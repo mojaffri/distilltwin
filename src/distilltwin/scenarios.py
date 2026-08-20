@@ -37,6 +37,14 @@ class Scenario:
             raise ValueError("reflux effectiveness must be between 0.5 and 1.0")
 
 
+def _project_boilup(commanded_boilup: float, reflux: float, feed_rate: float) -> float:
+    """Keep both product flows positive without assuming a nominal feed rate."""
+    margin = min(0.05, feed_rate / 4.0)
+    lower = reflux + margin
+    upper = reflux + feed_rate - margin
+    return min(upper, max(lower, commanded_boilup))
+
+
 class ScenarioRunner:
     """Run paired composition controllers around the dynamic column model."""
 
@@ -91,15 +99,13 @@ class ScenarioRunner:
                 dt=scenario.dt,
             )
             reflux = commanded_reflux * effectiveness
-            boilup = bottom_controller.update(
+            commanded_boilup = bottom_controller.update(
                 setpoint=bottom_setpoint,
                 measurement=measured_bottom,
                 dt=scenario.dt,
             )
+            boilup = _project_boilup(commanded_boilup, reflux, feed_rate)
 
-            # Project controller outputs into the physically valid product-flow region.
-            boilup = min(boilup, reflux + feed_rate - 0.05)
-            boilup = max(boilup, reflux + 0.05)
             inputs = ColumnInputs(feed_rate, feed_composition, reflux, boilup)
             temperatures = self.column.temperature_proxy(state)
             ewma, alarm = monitor.update(measured_top - float(state[-1]))
