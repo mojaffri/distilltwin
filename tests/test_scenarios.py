@@ -33,3 +33,18 @@ def test_reflux_effectiveness_fault_changes_actual_not_commanded_flow() -> None:
     ratio = faulted["reflux_flow"] / faulted["reflux_command"]
     assert (ratio - 0.7).abs().max() < 1e-12
 
+
+def test_low_feed_rate_keeps_product_flows_physically_valid() -> None:
+    frame = ScenarioRunner().run(
+        Scenario(
+            duration=8.0,
+            dt=0.2,
+            disturbance_at=2.0,
+            feed_rate_after=0.02,
+        )
+    )
+    disturbed = frame.loc[frame["time"] >= 2.0]
+    distillate = disturbed["boilup_flow"] - disturbed["reflux_flow"]
+    bottoms = disturbed["reflux_flow"] + disturbed["feed_rate"] - disturbed["boilup_flow"]
+    assert (distillate > 0.0).all()
+    assert (bottoms > 0.0).all()
