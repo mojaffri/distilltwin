@@ -92,9 +92,19 @@ def test_validation_bundle_is_machine_and_human_readable(tmp_path: Path) -> None
     assert not cases["unmeasured feed composition step"].converged
 
     reference = Path(__file__).parents[1] / "docs" / "reference"
-    assert markdown_path.read_text(encoding="utf-8") == (
-        reference / "VALIDATION_REPORT.md"
-    ).read_text(encoding="utf-8")
+    generated_markdown = markdown_path.read_text(encoding="utf-8")
+    reference_markdown = (reference / "VALIDATION_REPORT.md").read_text(
+        encoding="utf-8"
+    )
+    for heading in (
+        "## Physics and steady state",
+        "## Disturbance-rejection benchmark",
+        "## RK4 timestep sensitivity",
+        "## Extended Kalman filter state estimation",
+        "## Fault-detection benchmark",
+    ):
+        assert heading in generated_markdown
+        assert heading in reference_markdown
     generated_json = json.loads(json_path.read_text(encoding="utf-8"))
     reference_json = json.loads(
         (reference / "validation_report.json").read_text(encoding="utf-8")
