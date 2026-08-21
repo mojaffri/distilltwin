@@ -11,7 +11,21 @@ model, paired composition PID loops, an extended Kalman filter, hidden-plant mis
 benchmarks, fault injection, residual monitoring, numerical validation,
 a FastAPI service, a Streamlit interface, Docker, and CI.
 
-The open model uses constant relative volatility and constant molar overflow. It has been validated against its documented reduced-order assumptions. It has not been calibrated against Aspen Plus, Aspen Plus Dynamics, or plant data.
+The open model uses constant relative volatility and constant molar overflow. It has
+been validated against its documented reduced-order assumptions. It has not been
+calibrated against Aspen Plus, Aspen Plus Dynamics, or plant data.
+
+![DistillTwin control-room interface](docs/assets/distilltwin-control-room.png)
+
+## Start with the evidence
+
+| Review area | Entry point |
+|---|---|
+| Dynamic model and numerical integration | [`src/distilltwin/model.py`](src/distilltwin/model.py) |
+| Partial-measurement state estimation | [`docs/STATE_ESTIMATION.md`](docs/STATE_ESTIMATION.md) |
+| Reproducible benchmark definitions and results | [`docs/VALIDATION.md`](docs/VALIDATION.md) · [`docs/VALIDATION_RESULTS.md`](docs/VALIDATION_RESULTS.md) |
+| Interactive scenario and fault lab | [`webapp/app.py`](webapp/app.py) |
+| API and container entry points | [`src/distilltwin/api.py`](src/distilltwin/api.py) · [`compose.yaml`](compose.yaml) |
 
 ## Reference results
 
