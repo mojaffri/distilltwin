@@ -15,6 +15,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from distilltwin.estimation_validation import (
+    EstimationBenchmark,
+    benchmark_state_estimator,
+)
 from distilltwin.model import ColumnInputs, DistillationColumn
 from distilltwin.scenarios import Scenario, ScenarioRunner
 
@@ -137,6 +141,7 @@ class ValidationReport:
     timestep_reference_dt: float
     timestep_cases: tuple[TimestepCase, ...]
     fault_detection: FaultDetectionMetrics
+    state_estimation: EstimationBenchmark
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -151,6 +156,7 @@ class ValidationReport:
                 "cases": [case.to_dict() for case in self.timestep_cases],
             },
             "fault_detection": self.fault_detection.to_dict(),
+            "state_estimation": self.state_estimation.to_dict(),
         }
 
 
@@ -369,11 +375,12 @@ def generate_validation_report() -> ValidationReport:
         timestep_reference_dt=reference_dt,
         timestep_cases=benchmark_timesteps(reference_dt=reference_dt),
         fault_detection=benchmark_fault_detection(),
+        state_estimation=benchmark_state_estimator(),
     )
 
 
 def render_markdown(report: ValidationReport) -> str:
-    """Render a concise recruiter- and reviewer-readable validation report."""
+    """Render a concise human-readable validation report."""
     physics = report.physics
     fault = report.fault_detection
     control_rows = "\n".join(
@@ -392,6 +399,19 @@ def render_markdown(report: ValidationReport) -> str:
         f"{case.final_top_absolute_difference:.3e} | "
         f"{case.final_bottom_absolute_difference:.3e} |"
         for case in report.timestep_cases
+    )
+    estimation_rows = "\n".join(
+        f"| {case.scenario.name} | {case.observability_rank} | "
+        f"{case.metrics.overall_rmse:.6f} | "
+        f"{case.metrics.post_disturbance_rmse:.6f} | "
+        f"{case.metrics.transient_rmse:.6f} | "
+        f"{case.metrics.peak_state_rmse:.6f} | "
+        f"{case.metrics.convergence_delay:.2f} | {case.metrics.converged} |"
+        for case in report.state_estimation.cases
+    )
+    estimation_header = (
+        "| Scenario | Obs. rank | Overall RMSE | Post-step RMSE | Transient RMSE | "
+        "Peak state RMSE | Convergence delay | Converged |"
     )
     return f"""# DistillTwin validation report
 
@@ -426,6 +446,18 @@ Final-product differences are measured against a dt =
 |---:|---:|---:|---:|
 {timestep_rows}
 
+## Extended Kalman filter state estimation
+
+The estimator reconstructs {report.state_estimation.state_dimension} stage compositions
+from {report.state_estimation.measured_signal_count} signals: product compositions on
+stages {report.state_estimation.composition_stages} and temperature proxies on stages
+{report.state_estimation.temperature_stages}. The model-mismatch case uses a hidden plant
+with relative volatility 2.20 and holdups 15% above the estimator model.
+
+{estimation_header}
+|---|---:|---:|---:|---:|---:|---:|---:|
+{estimation_rows}
+
 ## Fault-detection benchmark
 
 | Metric | Result |
@@ -455,6 +487,10 @@ def write_validation_bundle(
     pd.DataFrame(result.control.rows()).to_csv(output / "control_benchmark.csv", index=False)
     pd.DataFrame([case.to_dict() for case in result.timestep_cases]).to_csv(
         output / "timestep_sensitivity.csv",
+        index=False,
+    )
+    pd.DataFrame(result.state_estimation.rows()).to_csv(
+        output / "state_estimation_benchmark.csv",
         index=False,
     )
     return markdown_path, json_path

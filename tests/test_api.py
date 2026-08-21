@@ -5,7 +5,7 @@ from distilltwin.api import app
 client = TestClient(app)
 
 
-def test_health_and_metadata_are_honest_about_model_status() -> None:
+def test_health_and_metadata_report_model_status() -> None:
     assert client.get("/health").json()["status"] == "ok"
     metadata = client.get("/metadata")
     assert metadata.status_code == 200
@@ -28,5 +28,11 @@ def test_simulation_rejects_invalid_timing_and_unknown_fields() -> None:
         "/simulate", json={"duration": 10.0, "disturbance_at": 11.0}
     )
     unknown = client.post("/simulate", json={"mystery_parameter": 123})
+    nonfinite = client.post(
+        "/simulate",
+        content='{"duration": NaN}',
+        headers={"content-type": "application/json"},
+    )
     assert bad_timing.status_code == 422
     assert unknown.status_code == 422
+    assert nonfinite.status_code == 422

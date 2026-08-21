@@ -41,6 +41,29 @@ class ColumnConfig:
             raise ValueError("relative_volatility must exceed one for the light key")
         if min(self.tray_holdup, self.condenser_holdup, self.reboiler_holdup) <= 0:
             raise ValueError("stage holdups must be positive")
+        numeric = np.asarray(
+            [
+                self.relative_volatility,
+                self.tray_holdup,
+                self.condenser_holdup,
+                self.reboiler_holdup,
+                self.nominal_feed,
+                self.nominal_feed_composition,
+                self.nominal_reflux,
+                self.nominal_boilup,
+            ],
+            dtype=float,
+        )
+        if not np.all(np.isfinite(numeric)):
+            raise ValueError("column configuration values must be finite")
+        if self.nominal_feed <= 0 or self.nominal_reflux <= 0 or self.nominal_boilup <= 0:
+            raise ValueError("nominal flows must be positive")
+        if not 0.0 <= self.nominal_feed_composition <= 1.0:
+            raise ValueError("nominal feed composition must be between zero and one")
+        distillate = self.nominal_boilup - self.nominal_reflux
+        bottoms = self.nominal_reflux + self.nominal_feed - self.nominal_boilup
+        if distillate <= 0 or bottoms <= 0:
+            raise ValueError("nominal flows must produce positive product rates")
 
 
 @dataclass(frozen=True)
@@ -53,6 +76,17 @@ class ColumnInputs:
     boilup_flow: float
 
     def validate(self) -> None:
+        values = np.asarray(
+            [
+                self.feed_rate,
+                self.feed_composition,
+                self.reflux_flow,
+                self.boilup_flow,
+            ],
+            dtype=float,
+        )
+        if not np.all(np.isfinite(values)):
+            raise ValueError("all inputs must be finite")
         if self.feed_rate <= 0 or self.reflux_flow <= 0 or self.boilup_flow <= 0:
             raise ValueError("all flows must be positive")
         if not 0.0 <= self.feed_composition <= 1.0:
@@ -83,20 +117,35 @@ class DistillationColumn:
         """Return vapor composition from a constant-relative-volatility VLE relation."""
         alpha = self.config.relative_volatility
         x = np.asarray(liquid_composition, dtype=float)
+        if not np.all(np.isfinite(x)) or np.any((x < 0.0) | (x > 1.0)):
+            raise ValueError("liquid composition must be finite and between zero and one")
         return alpha * x / (1.0 + (alpha - 1.0) * x)
 
     def temperature_proxy(self, liquid_composition: FloatArray) -> FloatArray:
         """Map composition to an illustrative normal-boiling temperature signal in Celsius."""
         x = np.asarray(liquid_composition, dtype=float)
+        if not np.all(np.isfinite(x)) or np.any((x < 0.0) | (x > 1.0)):
+            raise ValueError("liquid composition must be finite and between zero and one")
         return 110.6 - 30.5 * x
+
+    def validate_state(self, state: FloatArray) -> FloatArray:
+        """Validate and return one full physical column state."""
+        x = np.asarray(state, dtype=float)
+        if x.shape != (self.config.n_stages,):
+            raise ValueError(f"state must have shape ({self.config.n_stages},)")
+        if not np.all(np.isfinite(x)):
+            raise ValueError("state must contain only finite values")
+        tolerance = 1e-12
+        if np.any((x < -tolerance) | (x > 1.0 + tolerance)):
+            raise ValueError("state compositions must remain between zero and one")
+        validated: FloatArray = np.clip(x, 0.0, 1.0).astype(np.float64)
+        return validated
 
     def derivatives(self, state: FloatArray, inputs: ColumnInputs) -> FloatArray:
         """Evaluate stage light-key component balances."""
         inputs.validate()
         cfg = self.config
-        x = np.asarray(state, dtype=float)
-        if x.shape != (cfg.n_stages,):
-            raise ValueError(f"state must have shape ({cfg.n_stages},)")
+        x = self.validate_state(state)
 
         y = self.equilibrium_vapor(x)
         derivative = np.zeros_like(x)
@@ -125,16 +174,49 @@ class DistillationColumn:
         derivative[-1] = vapor * (y[-2] - x[-1]) / cfg.condenser_holdup
         return derivative
 
+    def derivative_jacobian(self, state: FloatArray, inputs: ColumnInputs) -> FloatArray:
+        """Return the exact state Jacobian of the continuous component balances."""
+        inputs.validate()
+        cfg = self.config
+        x = self.validate_state(state)
+        alpha = cfg.relative_volatility
+        vapor_slope = alpha / (1.0 + (alpha - 1.0) * x) ** 2
+        feed = inputs.feed_rate
+        reflux = inputs.reflux_flow
+        vapor = inputs.boilup_flow
+        bottoms = reflux + feed - vapor
+        jacobian = np.zeros((cfg.n_stages, cfg.n_stages), dtype=float)
+
+        jacobian[0, 0] = (-bottoms - vapor * vapor_slope[0]) / cfg.reboiler_holdup
+        jacobian[0, 1] = (reflux + feed) / cfg.reboiler_holdup
+        for stage in range(1, cfg.n_stages - 1):
+            liquid_out = reflux + feed if stage <= cfg.feed_stage else reflux
+            liquid_in = reflux + feed if stage + 1 <= cfg.feed_stage else reflux
+            jacobian[stage, stage - 1] = vapor * vapor_slope[stage - 1] / cfg.tray_holdup
+            jacobian[stage, stage] = (
+                -liquid_out - vapor * vapor_slope[stage]
+            ) / cfg.tray_holdup
+            jacobian[stage, stage + 1] = liquid_in / cfg.tray_holdup
+        jacobian[-1, -2] = vapor * vapor_slope[-2] / cfg.condenser_holdup
+        jacobian[-1, -1] = -vapor / cfg.condenser_holdup
+        return jacobian.astype(np.float64)
+
     def step(self, state: FloatArray, inputs: ColumnInputs, dt: float) -> FloatArray:
         """Advance the model one step with fourth-order Runge-Kutta integration."""
-        if dt <= 0:
-            raise ValueError("dt must be positive")
-        x = np.asarray(state, dtype=float)
+        if not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be finite and positive")
+        x = self.validate_state(state)
         k1 = self.derivatives(x, inputs)
         k2 = self.derivatives(x + 0.5 * dt * k1, inputs)
         k3 = self.derivatives(x + 0.5 * dt * k2, inputs)
         k4 = self.derivatives(x + dt * k3, inputs)
         next_state = x + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+        if not np.all(np.isfinite(next_state)):
+            raise FloatingPointError("integration produced a non-finite state")
+        if np.any((next_state < -1e-12) | (next_state > 1.0 + 1e-12)):
+            raise FloatingPointError(
+                "integration left the physical composition domain; reduce the timestep"
+            )
         return np.clip(next_state, 0.0, 1.0).astype(np.float64)
 
     def steady_state(
@@ -145,6 +227,10 @@ class DistillationColumn:
         max_steps: int = 50_000,
     ) -> FloatArray:
         """Numerically settle the column at fixed inputs."""
+        if not np.isfinite(tolerance) or tolerance <= 0.0:
+            raise ValueError("tolerance must be finite and positive")
+        if max_steps <= 0:
+            raise ValueError("max_steps must be positive")
         fixed_inputs = inputs or self.nominal_inputs
         state = np.linspace(0.08, 0.92, self.config.n_stages, dtype=float)
         for _ in range(max_steps):
@@ -163,12 +249,14 @@ class DistillationColumn:
         initial_state: FloatArray | None = None,
     ) -> pd.DataFrame:
         """Run an open-loop simulation and return a tidy time-series frame."""
-        if duration <= 0:
-            raise ValueError("duration must be positive")
+        if not np.isfinite(duration) or duration <= 0:
+            raise ValueError("duration must be finite and positive")
+        if not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be finite and positive")
         state = (
             self.steady_state()
             if initial_state is None
-            else np.asarray(initial_state, dtype=float)
+            else self.validate_state(initial_state).copy()
         )
         records: list[dict[str, float]] = []
         for time in np.arange(0.0, duration + dt / 2.0, dt):
