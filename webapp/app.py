@@ -24,6 +24,13 @@ with st.sidebar:
     feed_composition = st.slider("Post-step feed light-key fraction", 0.20, 0.80, 0.58, 0.01)
     feed_rate = st.slider("Post-step feed rate", 0.60, 1.40, 1.00, 0.05)
     sensor_bias = st.slider("Top analyzer bias", -0.10, 0.10, 0.00, 0.005)
+    sensor_drift_rate = st.slider(
+        "Top analyzer drift rate (/min)", -0.010, 0.010, 0.000, 0.001
+    )
+    sensor_noise_std = st.slider(
+        "Top analyzer noise standard deviation", 0.000, 0.020, 0.004, 0.001
+    )
+    random_seed = st.number_input("Noise seed", min_value=0, max_value=10_000, value=0)
     valve_effectiveness = st.slider("Reflux-valve effectiveness", 0.50, 1.00, 1.00, 0.01)
 
 scenario = Scenario(
@@ -32,7 +39,10 @@ scenario = Scenario(
     feed_composition_after=feed_composition,
     feed_rate_after=feed_rate,
     top_sensor_bias_after=sensor_bias,
+    top_sensor_drift_rate_after=sensor_drift_rate,
+    top_sensor_noise_std=sensor_noise_std,
     reflux_effectiveness_after=valve_effectiveness,
+    random_seed=int(random_seed),
 )
 frame = ScenarioRunner().run(scenario)
 
@@ -49,7 +59,8 @@ with control_tab:
 
     st.subheader("Product composition and setpoints")
     st.line_chart(
-        frame.set_index("time")[["x_top", "top_setpoint", "x_bottom", "bottom_setpoint"]]
+        frame.set_index("time")
+        [["x_top", "measured_top", "top_setpoint", "x_bottom", "bottom_setpoint"]]
     )
 
     left, right = st.columns(2)
@@ -58,10 +69,20 @@ with control_tab:
         st.line_chart(frame.set_index("time")[["reflux_flow", "boilup_flow"]])
     with right:
         st.subheader("Temperature signals")
-        st.line_chart(frame.set_index("time")[["temperature_top", "temperature_bottom"]])
+        st.line_chart(
+            frame.set_index("time")
+            [
+                [
+                    "temperature_top",
+                    "temperature_upper_tray",
+                    "temperature_lower_tray",
+                    "temperature_bottom",
+                ]
+            ]
+        )
 
     st.subheader("Fault residual")
-    st.line_chart(frame.set_index("time")[["sensor_residual_ewma"]])
+    st.line_chart(frame.set_index("time")[["sensor_residual", "sensor_residual_ewma"]])
     if alarm_count:
         first_alarm = float(frame.loc[frame["sensor_alarm"], "time"].iloc[0])
         st.warning(
@@ -80,6 +101,8 @@ with validation_tab:
     report = cached_validation_report()
     physics = report.physics
     fault = report.fault_detection
+    soft_sensor = report.soft_sensor
+    fault_suite = report.fault_suite
     top_open = report.control.open_loop_top
     top_pid = report.control.closed_loop_top
     iae_improvement = 100.0 * (1.0 - top_pid.iae / top_open.iae)
@@ -98,19 +121,19 @@ with validation_tab:
         help="Absolute discrepancy between total light-key accumulation and boundary flux.",
     )
     metric2.metric(
-        "Steady-state residual",
-        f"{physics.steady_state_max_derivative:.2e}",
-        help="Maximum absolute stage derivative at the nominal numerical steady state.",
-    )
-    metric3.metric(
         "Top IAE reduction",
         f"{iae_improvement:.1f}%",
         help="Paired PID versus fixed-input open-loop response to the same feed step.",
     )
+    metric3.metric(
+        "Soft-sensor holdout RMSE",
+        f"{soft_sensor.rmse:.4f}",
+        help="Scenario-level holdout with noise added to selected tray temperatures.",
+    )
     metric4.metric(
-        "Bias detection delay",
-        f"{fault.detection_delay:.2f} min",
-        help="Delay after injecting a persistent +0.05 top-analyzer bias.",
+        "Minimum noisy detection rate",
+        f"{min(case.detection_rate for case in fault_suite.cases):.0%}",
+        help="Worst detection rate across abrupt positive/negative bias and gradual drift.",
     )
 
     st.subheader("Open-loop versus paired PID")
@@ -125,7 +148,6 @@ with validation_tab:
                 "settling_time": "{:.2f}",
             }
         ),
-        use_container_width=True,
         hide_index=True,
     )
 
@@ -143,7 +165,6 @@ with validation_tab:
                     "final_bottom_absolute_difference": "{:.3e}",
                 }
             ),
-            use_container_width=True,
             hide_index=True,
         )
         st.caption(
@@ -151,7 +172,7 @@ with validation_tab:
             f"{report.timestep_reference_dt:.3f} min reference."
         )
     with right:
-        st.subheader("Known-fault benchmark")
+        st.subheader("Known-fault functional check")
         st.write(
             {
                 "Injected analyzer bias": f"{fault.injected_bias:+.3f}",
@@ -161,6 +182,27 @@ with validation_tab:
                 "Post-fault alarm fraction": f"{fault.post_fault_alarm_fraction:.2%}",
             }
         )
+
+    st.subheader("Noisy multi-run fault benchmark")
+    st.caption(
+        f"Each fault uses {fault_suite.cases[0].replicates} deterministic noise seeds "
+        f"at analyzer noise standard deviation {fault_suite.noise_standard_deviation:.3f}. "
+        f"No-fault alarm fraction: {fault_suite.no_fault_alarm_fraction:.3%}."
+    )
+    fault_suite_frame = pd.DataFrame([case.to_dict() for case in fault_suite.cases])
+    st.dataframe(
+        fault_suite_frame.style.format(
+            {
+                "magnitude": "{:+.3f}",
+                "detection_rate": "{:.1%}",
+                "median_detection_delay": "{:.3f}",
+                "p95_detection_delay": "{:.3f}",
+                "pre_fault_false_alarm_fraction": "{:.3%}",
+                "post_fault_alarm_fraction": "{:.3%}",
+            }
+        ),
+        hide_index=True,
+    )
 
     st.download_button(
         "Download validation report",

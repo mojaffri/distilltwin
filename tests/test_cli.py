@@ -25,6 +25,12 @@ def test_cli_exports_a_reproducible_scenario(
             "0.62",
             "--sensor-bias",
             "0.03",
+            "--sensor-drift-rate",
+            "0.002",
+            "--sensor-noise-std",
+            "0.004",
+            "--random-seed",
+            "11",
             "--output",
             str(output),
         ],
@@ -37,4 +43,6 @@ def test_cli_exports_a_reproducible_scenario(
     assert len(exported) == 21
     assert exported["time"].iloc[[0, -1]].tolist() == [0.0, 2.0]
     assert exported.loc[exported["time"] >= 1.0, "feed_composition"].eq(0.62).all()
+    assert exported["sensor_noise"].abs().sum() > 0.0
+    assert exported.loc[exported["time"] >= 1.0, "sensor_drift"].iloc[-1] > 0.0
     assert "wrote 21 samples" in capsys.readouterr().out

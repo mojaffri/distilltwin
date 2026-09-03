@@ -5,24 +5,28 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-DistillTwin is a dynamic binary-distillation model built for process-control and fault-detection experiments. The repository includes the process model, paired composition PID loops, fault injection, residual monitoring, a soft sensor, numerical validation, a FastAPI service, a Streamlit interface, Docker, and CI.
+DistillTwin is a dynamic binary-distillation model built for process-control and fault-detection experiments. The repository includes the process model, paired composition PID loops, seeded sensor noise and fault injection, residual monitoring, a scenario-validated soft sensor, numerical validation, a FastAPI service, a Streamlit interface, Docker, and CI.
 
 The open model uses constant relative volatility and constant molar overflow. It has been validated against its documented reduced-order assumptions. It has not been calibrated against Aspen Plus, Aspen Plus Dynamics, or plant data.
 
 ## Reference results
 
-The validation suite is deterministic and runs in CI. The current reference results were generated on August 17, 2026.
+The validation suite is deterministic and runs in CI. The current reference results were generated on September 3, 2026.
 
 | Check | Result |
 |---|---:|
-| Absolute light-key balance residual | `1.388e-17` |
+| Absolute light-key balance residual | `6.939e-18` |
 | Maximum nominal steady-state derivative | `1.999e-08` |
 | PID reduction in top-composition IAE | `26.6%` |
 | PID reduction in bottom-composition IAE | `56.1%` |
 | RK4 final-product difference at `dt = 0.1 min` vs. `dt = 0.05 min` | `< 9e-06` |
 | Detection delay for an injected `+0.050` analyzer bias | `0.400 min` |
 | Pre-fault false-alarm fraction in that deterministic test | `0.000%` |
-| Python line coverage on the reference CI run | `93.18%` |
+| Soft-sensor RMSE on four held-out operating scenarios | `0.000347` |
+| Soft-sensor RMSE reduction versus constant baseline | `94.5%` |
+| Detection rate across noisy positive bias, negative bias, and drift tests | `100%` |
+| No-fault alarm fraction across 12 seeded noisy runs | `0.000%` |
+| Python line coverage on the reference run | `93.90%` |
 
 Full tables and acceptance criteria are in [`docs/VALIDATION_RESULTS.md`](docs/VALIDATION_RESULTS.md) and [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
@@ -49,6 +53,8 @@ The scenario runner can apply:
 - feed-composition steps;
 - feed-rate steps;
 - top-analyzer bias;
+- gradual top-analyzer drift;
+- seeded top-analyzer noise; and
 - reflux-valve effectiveness loss.
 
 The controller implementation in [`src/distilltwin/control.py`](src/distilltwin/control.py) includes output limits and conditional-integration anti-windup.
@@ -62,7 +68,9 @@ For the reference feed-composition step from 0.50 to 0.62, the paired PID loops 
 - `EWMAResidualMonitor` for online residual alarms;
 - `RidgeSoftSensor` for composition estimation from process signals.
 
-The known-fault validation injects a `+0.050` top-analyzer bias. With the current EWMA settings, the alarm appears after `0.400 min`, with no pre-fault alarms in the deterministic reference run. That benchmark checks implementation behavior under a defined injection; it is not presented as an industrial false-positive estimate.
+The soft sensor is fitted on 15 complete feed-composition/feed-rate scenarios and evaluated on four separate operating scenarios instead of a random row split. With `0.15 degC` noise added to the selected tray-temperature features—and the directly invertible top-temperature proxy excluded—it achieves `0.000347` holdout RMSE versus `0.006338` for a constant baseline.
+
+The original known-fault check remains as a deterministic regression test. A second benchmark repeats positive bias, negative bias, gradual drift, and no-fault operation across 12 seeded noise realizations at analyzer noise standard deviation `0.004`. Every injected fault is detected in that defined suite, with zero alarms in the no-fault runs. These are simulation benchmarks, not industrial false-positive or plant-performance estimates.
 
 ## Architecture
 
@@ -109,7 +117,8 @@ This creates:
 - a Markdown report;
 - structured JSON results;
 - an open-loop/PID benchmark CSV;
-- an RK4 timestep-sensitivity CSV.
+- an RK4 timestep-sensitivity CSV; and
+- a noisy fault-suite CSV.
 
 CI generates the same artifact set on pull requests.
 

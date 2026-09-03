@@ -48,3 +48,36 @@ def test_low_feed_rate_keeps_product_flows_physically_valid() -> None:
     bottoms = disturbed["reflux_flow"] + disturbed["feed_rate"] - disturbed["boilup_flow"]
     assert (distillate > 0.0).all()
     assert (bottoms > 0.0).all()
+
+
+def test_seeded_analyzer_noise_is_reproducible() -> None:
+    runner = ScenarioRunner()
+    case = Scenario(
+        duration=4.0,
+        dt=0.2,
+        disturbance_at=2.0,
+        top_sensor_noise_std=0.004,
+        random_seed=19,
+    )
+    first = runner.run(case)
+    repeated = runner.run(case)
+    different = runner.run(Scenario(**{**case.__dict__, "random_seed": 20}))
+    assert first["sensor_noise"].equals(repeated["sensor_noise"])
+    assert not first["sensor_noise"].equals(different["sensor_noise"])
+
+
+def test_gradual_analyzer_drift_accumulates_after_fault_time() -> None:
+    frame = ScenarioRunner().run(
+        Scenario(
+            duration=8.0,
+            dt=0.2,
+            disturbance_at=3.0,
+            feed_composition_after=0.50,
+            top_sensor_drift_rate_after=0.003,
+        )
+    )
+    before = frame.loc[frame["time"] < 3.0]
+    after = frame.loc[frame["time"] >= 3.0]
+    assert before["sensor_drift"].eq(0.0).all()
+    assert after["sensor_drift"].is_monotonic_increasing
+    assert after["sensor_drift"].iloc[-1] == 0.015

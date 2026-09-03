@@ -22,7 +22,10 @@ class Scenario:
     feed_composition_after: float = 0.58
     feed_rate_after: float = 1.0
     top_sensor_bias_after: float = 0.0
+    top_sensor_drift_rate_after: float = 0.0
+    top_sensor_noise_std: float = 0.0
     reflux_effectiveness_after: float = 1.0
+    random_seed: int = 0
 
     def __post_init__(self) -> None:
         if self.duration <= 0 or self.dt <= 0:
@@ -33,8 +36,12 @@ class Scenario:
             raise ValueError("feed composition must be between zero and one")
         if self.feed_rate_after <= 0:
             raise ValueError("feed rate must be positive")
+        if self.top_sensor_noise_std < 0:
+            raise ValueError("sensor-noise standard deviation must be nonnegative")
         if not 0.5 <= self.reflux_effectiveness_after <= 1.0:
             raise ValueError("reflux effectiveness must be between 0.5 and 1.0")
+        if self.random_seed < 0:
+            raise ValueError("random_seed must be nonnegative")
 
 
 def _project_boilup(commanded_boilup: float, reflux: float, feed_rate: float) -> float:
@@ -50,12 +57,16 @@ class ScenarioRunner:
 
     def __init__(self, column: DistillationColumn | None = None) -> None:
         self.column = column or DistillationColumn()
+        self._nominal_state = self.column.steady_state()
 
     def run(self, scenario: Scenario) -> pd.DataFrame:
         cfg = self.column.config
-        state = self.column.steady_state()
+        state = self._nominal_state.copy()
         top_setpoint = float(state[-1])
         bottom_setpoint = float(state[0])
+        random = np.random.default_rng(scenario.random_seed)
+        lower_tray = max(1, cfg.n_stages // 3)
+        upper_tray = min(cfg.n_stages - 2, 2 * cfg.n_stages // 3)
 
         top_controller = PIDController(
             PIDConfig(
@@ -89,8 +100,21 @@ class ScenarioRunner:
                 else cfg.nominal_feed_composition
             )
             sensor_bias = scenario.top_sensor_bias_after if disturbed else 0.0
+            sensor_drift = (
+                scenario.top_sensor_drift_rate_after
+                * max(0.0, float(time) - scenario.disturbance_at)
+                if disturbed
+                else 0.0
+            )
+            sensor_noise = (
+                float(random.normal(0.0, scenario.top_sensor_noise_std))
+                if scenario.top_sensor_noise_std
+                else 0.0
+            )
             effectiveness = scenario.reflux_effectiveness_after if disturbed else 1.0
-            measured_top = float(np.clip(state[-1] + sensor_bias, 0.0, 1.0))
+            measured_top = float(
+                np.clip(state[-1] + sensor_bias + sensor_drift + sensor_noise, 0.0, 1.0)
+            )
             measured_bottom = float(state[0])
 
             commanded_reflux = top_controller.update(
@@ -108,7 +132,8 @@ class ScenarioRunner:
 
             inputs = ColumnInputs(feed_rate, feed_composition, reflux, boilup)
             temperatures = self.column.temperature_proxy(state)
-            ewma, alarm = monitor.update(measured_top - float(state[-1]))
+            sensor_residual = measured_top - float(state[-1])
+            ewma, alarm = monitor.update(sensor_residual)
             records.append(
                 {
                     "time": float(time),
@@ -118,12 +143,18 @@ class ScenarioRunner:
                     "top_setpoint": top_setpoint,
                     "bottom_setpoint": bottom_setpoint,
                     "temperature_bottom": float(temperatures[0]),
+                    "temperature_lower_tray": float(temperatures[lower_tray]),
+                    "temperature_upper_tray": float(temperatures[upper_tray]),
                     "temperature_top": float(temperatures[-1]),
                     "feed_rate": feed_rate,
                     "feed_composition": feed_composition,
                     "reflux_command": commanded_reflux,
                     "reflux_flow": reflux,
                     "boilup_flow": boilup,
+                    "sensor_bias": sensor_bias,
+                    "sensor_drift": sensor_drift,
+                    "sensor_noise": sensor_noise,
+                    "sensor_residual": sensor_residual,
                     "sensor_residual_ewma": ewma,
                     "sensor_alarm": alarm,
                 }

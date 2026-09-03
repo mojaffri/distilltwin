@@ -15,8 +15,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from distilltwin.analytics import RidgeSoftSensor
 from distilltwin.model import ColumnInputs, DistillationColumn
 from distilltwin.scenarios import Scenario, ScenarioRunner
+
+SOFT_SENSOR_FEATURES = (
+    "temperature_bottom",
+    "temperature_lower_tray",
+    "temperature_upper_tray",
+    "feed_rate",
+    "feed_composition",
+    "reflux_flow",
+    "boilup_flow",
+)
 
 
 @dataclass(frozen=True)
@@ -129,6 +140,79 @@ class FaultDetectionMetrics:
 
 
 @dataclass(frozen=True)
+class SoftSensorMetrics:
+    """Generalization evidence for the process-context ridge soft sensor."""
+
+    training_scenarios: int
+    holdout_scenarios: int
+    training_samples: int
+    holdout_samples: int
+    temperature_noise_std_c: float
+    rmse: float
+    mae: float
+    constant_baseline_rmse: float
+    rmse_improvement_fraction: float
+
+    def to_dict(self) -> dict[str, float | int | bool]:
+        return {
+            "training_scenarios": self.training_scenarios,
+            "holdout_scenarios": self.holdout_scenarios,
+            "training_samples": self.training_samples,
+            "holdout_samples": self.holdout_samples,
+            "temperature_noise_std_c": self.temperature_noise_std_c,
+            "rmse": self.rmse,
+            "mae": self.mae,
+            "constant_baseline_rmse": self.constant_baseline_rmse,
+            "rmse_improvement_fraction": self.rmse_improvement_fraction,
+            "scenario_level_holdout": True,
+        }
+
+
+@dataclass(frozen=True)
+class FaultCaseMetrics:
+    """Monte Carlo detection results for one noisy analyzer-fault family."""
+
+    fault: str
+    magnitude: float
+    units: str
+    replicates: int
+    detection_rate: float
+    median_detection_delay: float
+    p95_detection_delay: float
+    pre_fault_false_alarm_fraction: float
+    post_fault_alarm_fraction: float
+
+    def to_dict(self) -> dict[str, float | int | str]:
+        return {
+            "fault": self.fault,
+            "magnitude": self.magnitude,
+            "units": self.units,
+            "replicates": self.replicates,
+            "detection_rate": self.detection_rate,
+            "median_detection_delay": self.median_detection_delay,
+            "p95_detection_delay": self.p95_detection_delay,
+            "pre_fault_false_alarm_fraction": self.pre_fault_false_alarm_fraction,
+            "post_fault_alarm_fraction": self.post_fault_alarm_fraction,
+        }
+
+
+@dataclass(frozen=True)
+class FaultSuiteMetrics:
+    """Noise-robust benchmark across abrupt and incipient analyzer faults."""
+
+    noise_standard_deviation: float
+    no_fault_alarm_fraction: float
+    cases: tuple[FaultCaseMetrics, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "noise_standard_deviation": self.noise_standard_deviation,
+            "no_fault_alarm_fraction": self.no_fault_alarm_fraction,
+            "cases": [case.to_dict() for case in self.cases],
+        }
+
+
+@dataclass(frozen=True)
 class ValidationReport:
     """Complete deterministic validation result."""
 
@@ -137,6 +221,8 @@ class ValidationReport:
     timestep_reference_dt: float
     timestep_cases: tuple[TimestepCase, ...]
     fault_detection: FaultDetectionMetrics
+    soft_sensor: SoftSensorMetrics
+    fault_suite: FaultSuiteMetrics
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -151,6 +237,8 @@ class ValidationReport:
                 "cases": [case.to_dict() for case in self.timestep_cases],
             },
             "fault_detection": self.fault_detection.to_dict(),
+            "soft_sensor": self.soft_sensor.to_dict(),
+            "fault_suite": self.fault_suite.to_dict(),
         }
 
 
@@ -360,6 +448,209 @@ def benchmark_fault_detection(
     )
 
 
+def _process_context_frame(
+    runner: ScenarioRunner,
+    cases: tuple[Scenario, ...],
+) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for scenario_id, case in enumerate(cases):
+        frame = runner.run(case)
+        post_disturbance = frame.loc[frame["time"] >= case.disturbance_at].copy()
+        post_disturbance["scenario_id"] = scenario_id
+        frames.append(post_disturbance)
+    return pd.concat(frames, ignore_index=True)
+
+
+def benchmark_soft_sensor() -> SoftSensorMetrics:
+    """Evaluate the ridge sensor on complete operating scenarios held out from fitting."""
+    training_cases = tuple(
+        Scenario(
+            duration=28.0,
+            dt=0.2,
+            disturbance_at=5.0,
+            feed_composition_after=feed_composition,
+            feed_rate_after=feed_rate,
+        )
+        for feed_composition in (0.38, 0.46, 0.54, 0.62, 0.70)
+        for feed_rate in (0.80, 1.00, 1.20)
+    )
+    holdout_cases = tuple(
+        Scenario(
+            duration=28.0,
+            dt=0.2,
+            disturbance_at=5.0,
+            feed_composition_after=feed_composition,
+            feed_rate_after=feed_rate,
+        )
+        for feed_composition, feed_rate in (
+            (0.42, 0.90),
+            (0.50, 1.10),
+            (0.58, 0.85),
+            (0.66, 1.15),
+        )
+    )
+    runner = ScenarioRunner()
+    training = _process_context_frame(runner, training_cases)
+    holdout = _process_context_frame(runner, holdout_cases)
+    training_features = training.loc[:, SOFT_SENSOR_FEATURES].to_numpy(
+        dtype=float, copy=True
+    )
+    holdout_features = holdout.loc[:, SOFT_SENSOR_FEATURES].to_numpy(
+        dtype=float, copy=True
+    )
+
+    temperature_noise_std_c = 0.15
+    random = np.random.default_rng(491)
+    temperature_feature_count = 3
+    training_features[:, :temperature_feature_count] += random.normal(
+        0.0,
+        temperature_noise_std_c,
+        size=(len(training_features), temperature_feature_count),
+    )
+    holdout_features[:, :temperature_feature_count] += random.normal(
+        0.0,
+        temperature_noise_std_c,
+        size=(len(holdout_features), temperature_feature_count),
+    )
+    training_target = training["x_top"].to_numpy(dtype=float)
+    holdout_target = holdout["x_top"].to_numpy(dtype=float)
+    sensor = RidgeSoftSensor(regularization=1e-2).fit(training_features, training_target)
+    predictions = sensor.predict(holdout_features)
+    errors = predictions - holdout_target
+    rmse = float(np.sqrt(np.mean(errors**2)))
+    constant_errors = float(training_target.mean()) - holdout_target
+    constant_baseline_rmse = float(np.sqrt(np.mean(constant_errors**2)))
+    return SoftSensorMetrics(
+        training_scenarios=len(training_cases),
+        holdout_scenarios=len(holdout_cases),
+        training_samples=len(training),
+        holdout_samples=len(holdout),
+        temperature_noise_std_c=temperature_noise_std_c,
+        rmse=rmse,
+        mae=float(np.mean(np.abs(errors))),
+        constant_baseline_rmse=constant_baseline_rmse,
+        rmse_improvement_fraction=1.0 - rmse / constant_baseline_rmse,
+    )
+
+
+def _fault_scenario(
+    fault: str,
+    *,
+    seed: int,
+    noise_std: float,
+) -> Scenario:
+    baseline = Scenario(
+        duration=35.0,
+        dt=0.1,
+        disturbance_at=10.0,
+        feed_composition_after=0.50,
+        top_sensor_noise_std=noise_std,
+        random_seed=seed,
+    )
+    if fault == "positive analyzer bias":
+        return replace(baseline, top_sensor_bias_after=0.03)
+    if fault == "negative analyzer bias":
+        return replace(baseline, top_sensor_bias_after=-0.03)
+    if fault == "positive analyzer drift":
+        return replace(baseline, top_sensor_drift_rate_after=0.003)
+    raise ValueError(f"unknown fault family: {fault}")
+
+
+def _summarize_fault_case(
+    runner: ScenarioRunner,
+    *,
+    fault: str,
+    magnitude: float,
+    units: str,
+    replicates: int,
+    noise_std: float,
+) -> FaultCaseMetrics:
+    detections = 0
+    delays: list[float] = []
+    pre_fault_alarms = 0
+    pre_fault_samples = 0
+    post_fault_alarms = 0
+    post_fault_samples = 0
+    for seed in range(replicates):
+        case = _fault_scenario(fault, seed=seed, noise_std=noise_std)
+        frame = runner.run(case)
+        before = frame.loc[frame["time"] < case.disturbance_at, "sensor_alarm"]
+        after = frame.loc[frame["time"] >= case.disturbance_at]
+        alarms_after = after.loc[after["sensor_alarm"], "time"]
+        detected = not alarms_after.empty
+        detections += int(detected)
+        delays.append(
+            float(alarms_after.iloc[0] - case.disturbance_at)
+            if detected
+            else case.duration - case.disturbance_at
+        )
+        pre_fault_alarms += int(before.sum())
+        pre_fault_samples += len(before)
+        post_fault_alarms += int(after["sensor_alarm"].sum())
+        post_fault_samples += len(after)
+    return FaultCaseMetrics(
+        fault=fault,
+        magnitude=magnitude,
+        units=units,
+        replicates=replicates,
+        detection_rate=detections / replicates,
+        median_detection_delay=float(np.median(delays)),
+        p95_detection_delay=float(np.percentile(delays, 95)),
+        pre_fault_false_alarm_fraction=pre_fault_alarms / pre_fault_samples,
+        post_fault_alarm_fraction=post_fault_alarms / post_fault_samples,
+    )
+
+
+def benchmark_fault_suite(
+    *,
+    replicates: int = 12,
+    noise_std: float = 0.004,
+) -> FaultSuiteMetrics:
+    """Stress the EWMA monitor across seeded noise, bias direction, and gradual drift."""
+    if replicates <= 0:
+        raise ValueError("replicates must be positive")
+    if noise_std < 0:
+        raise ValueError("noise_std must be nonnegative")
+    runner = ScenarioRunner()
+    no_fault_alarms = 0
+    no_fault_samples = 0
+    for seed in range(replicates):
+        baseline = runner.run(
+            Scenario(
+                duration=35.0,
+                dt=0.1,
+                disturbance_at=10.0,
+                feed_composition_after=0.50,
+                top_sensor_noise_std=noise_std,
+                random_seed=seed,
+            )
+        )
+        no_fault_alarms += int(baseline["sensor_alarm"].sum())
+        no_fault_samples += len(baseline)
+
+    definitions = (
+        ("positive analyzer bias", 0.03, "mole fraction"),
+        ("negative analyzer bias", -0.03, "mole fraction"),
+        ("positive analyzer drift", 0.003, "mole fraction/min"),
+    )
+    cases = tuple(
+        _summarize_fault_case(
+            runner,
+            fault=fault,
+            magnitude=magnitude,
+            units=units,
+            replicates=replicates,
+            noise_std=noise_std,
+        )
+        for fault, magnitude, units in definitions
+    )
+    return FaultSuiteMetrics(
+        noise_standard_deviation=noise_std,
+        no_fault_alarm_fraction=no_fault_alarms / no_fault_samples,
+        cases=cases,
+    )
+
+
 def generate_validation_report() -> ValidationReport:
     """Run the complete deterministic validation suite."""
     reference_dt = 0.05
@@ -369,6 +660,8 @@ def generate_validation_report() -> ValidationReport:
         timestep_reference_dt=reference_dt,
         timestep_cases=benchmark_timesteps(reference_dt=reference_dt),
         fault_detection=benchmark_fault_detection(),
+        soft_sensor=benchmark_soft_sensor(),
+        fault_suite=benchmark_fault_suite(),
     )
 
 
@@ -376,6 +669,7 @@ def render_markdown(report: ValidationReport) -> str:
     """Render a concise recruiter- and reviewer-readable validation report."""
     physics = report.physics
     fault = report.fault_detection
+    soft_sensor = report.soft_sensor
     control_rows = "\n".join(
         f"| {mode} | {variable} | {metrics.iae:.6f} | {metrics.ise:.6f} | "
         f"{metrics.peak_absolute_error:.6f} | {metrics.final_absolute_error:.6f} | "
@@ -392,6 +686,14 @@ def render_markdown(report: ValidationReport) -> str:
         f"{case.final_top_absolute_difference:.3e} | "
         f"{case.final_bottom_absolute_difference:.3e} |"
         for case in report.timestep_cases
+    )
+    fault_suite_rows = "\n".join(
+        f"| {case.fault} | {case.magnitude:+.3f} {case.units} | "
+        f"{case.detection_rate:.1%} | {case.median_detection_delay:.3f} | "
+        f"{case.p95_detection_delay:.3f} | "
+        f"{case.pre_fault_false_alarm_fraction:.3%} | "
+        f"{case.post_fault_alarm_fraction:.3%} |"
+        for case in report.fault_suite.cases
     )
     return f"""# DistillTwin validation report
 
@@ -436,6 +738,35 @@ Final-product differences are measured against a dt =
 | Pre-fault false-alarm fraction | {fault.false_alarm_fraction:.3%} |
 | Post-fault alarm fraction | {fault.post_fault_alarm_fraction:.3%} |
 
+## Soft-sensor scenario holdout
+
+The ridge soft sensor is fitted on complete operating scenarios and evaluated on
+separate feed-composition/feed-rate combinations. The three selected tray-temperature
+features include deterministic Gaussian noise with a
+`{soft_sensor.temperature_noise_std_c:.2f} degC` standard deviation. The directly
+invertible top-temperature proxy is excluded from the features.
+
+| Metric | Result |
+|---|---:|
+| Training scenarios | {soft_sensor.training_scenarios} |
+| Holdout scenarios | {soft_sensor.holdout_scenarios} |
+| Holdout samples | {soft_sensor.holdout_samples} |
+| Holdout RMSE | {soft_sensor.rmse:.6f} |
+| Holdout MAE | {soft_sensor.mae:.6f} |
+| Constant-baseline RMSE | {soft_sensor.constant_baseline_rmse:.6f} |
+| RMSE improvement over constant baseline | {soft_sensor.rmse_improvement_fraction:.1%} |
+
+## Noisy multi-run fault benchmark
+
+Each fault is repeated across {report.fault_suite.cases[0].replicates} seeded noise
+realizations with analyzer noise standard deviation
+`{report.fault_suite.noise_standard_deviation:.3f}`. An additional no-fault baseline
+produced an alarm fraction of `{report.fault_suite.no_fault_alarm_fraction:.3%}`.
+
+| Fault | Magnitude | Detect | Median delay | P95 delay | Pre-fault alarms | Post-fault alarms |
+|---|---:|---:|---:|---:|---:|---:|
+{fault_suite_rows}
+
 Generated deterministically by `distilltwin-validate`.
 """
 
@@ -455,6 +786,10 @@ def write_validation_bundle(
     pd.DataFrame(result.control.rows()).to_csv(output / "control_benchmark.csv", index=False)
     pd.DataFrame([case.to_dict() for case in result.timestep_cases]).to_csv(
         output / "timestep_sensitivity.csv",
+        index=False,
+    )
+    pd.DataFrame([case.to_dict() for case in result.fault_suite.cases]).to_csv(
+        output / "fault_suite.csv",
         index=False,
     )
     return markdown_path, json_path

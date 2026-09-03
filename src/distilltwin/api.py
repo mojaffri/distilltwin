@@ -26,7 +26,10 @@ class ScenarioRequest(BaseModel):
     feed_composition_after: float = Field(default=0.58, ge=0, le=1)
     feed_rate_after: float = Field(default=1.0, gt=0, le=3)
     top_sensor_bias_after: float = Field(default=0.0, ge=-0.2, le=0.2)
+    top_sensor_drift_rate_after: float = Field(default=0.0, ge=-0.02, le=0.02)
+    top_sensor_noise_std: float = Field(default=0.0, ge=0.0, le=0.05)
     reflux_effectiveness_after: float = Field(default=1.0, ge=0.5, le=1)
+    random_seed: int = Field(default=0, ge=0, le=2**32 - 1)
 
     @model_validator(mode="after")
     def validate_timing(self) -> ScenarioRequest:
@@ -55,8 +58,10 @@ def metadata() -> dict[str, Any]:
             "dynamic component balances",
             "paired PID control with anti-windup",
             "feed disturbances",
-            "sensor bias and actuator effectiveness faults",
+            "seeded sensor noise, abrupt bias, gradual drift, and actuator faults",
             "online EWMA residual alarms",
+            "scenario-level ridge soft-sensor validation",
+            "multi-run noisy fault-detection benchmark",
         ],
     }
 
@@ -72,6 +77,7 @@ def simulate(request: ScenarioRequest) -> SimulationResponse:
             (frame["x_top"] - frame["top_setpoint"]).abs().max()
         ),
         "alarm_samples": int(frame["sensor_alarm"].sum()),
+        "peak_absolute_sensor_ewma": float(frame["sensor_residual_ewma"].abs().max()),
     }
     records = [
         {str(key): value for key, value in record.items()}
