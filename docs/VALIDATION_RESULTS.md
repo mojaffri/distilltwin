@@ -1,8 +1,8 @@
 # Validated reference results
 
-These deterministic results were generated in GitHub Actions on 2026-08-17 from the
-1.0.0 validation suite. The full Markdown, JSON, and CSV bundle is also retained as a
-workflow artifact for each successful run.
+These deterministic results were reproduced locally on 2026-09-03 from the 1.1.0
+validation suite. GitHub Actions runs the same checks and retains the full Markdown,
+JSON, and CSV bundle as a workflow artifact for each successful run.
 
 > **Boundary:** this is Aspen-independent verification of the transparent reduced-order
 > model. It does not claim agreement with Aspen or plant data.
@@ -11,7 +11,7 @@ workflow artifact for each successful run.
 
 | Check | Result |
 |---|---:|
-| Absolute light-key balance residual | `1.388e-17` |
+| Absolute light-key balance residual | `6.939e-18` |
 | Maximum nominal steady-state derivative | `1.999e-08` |
 | Minimum steady-state composition | `0.07480` |
 | Maximum steady-state composition | `0.92520` |
@@ -60,15 +60,45 @@ case differs from the fine reference by less than `9e-06`.
 This deterministic injection verifies functional behavior. It is not a statistical
 claim about noisy industrial data.
 
+## Soft-sensor scenario holdout
+
+The ridge soft sensor was fitted on 15 complete operating scenarios and evaluated on
+four separate, off-grid feed-composition/feed-rate scenarios. The selected tray
+temperatures included deterministic `0.15 degC` Gaussian noise; the directly invertible
+top-temperature proxy was excluded.
+
+| Metric | Result |
+|---|---:|
+| Training samples | 1,740 |
+| Holdout samples | 464 |
+| Holdout RMSE | `0.000347` |
+| Holdout MAE | `0.000272` |
+| Constant-baseline RMSE | `0.006338` |
+| RMSE reduction versus constant baseline | **94.5%** |
+
+## Noisy multi-run fault benchmark
+
+Each case was repeated over 12 deterministic seeds with analyzer noise standard
+deviation `0.004`. Twelve matching no-fault runs produced zero alarmed samples.
+
+| Fault | Magnitude | Detection rate | Median delay | P95 delay | Pre-fault alarms |
+|---|---:|---:|---:|---:|---:|
+| Positive analyzer bias | `+0.030` | **100%** | `1.100 min` | `1.245 min` | `0.000%` |
+| Negative analyzer bias | `-0.030` | **100%** | `1.050 min` | `1.245 min` | `0.000%` |
+| Positive analyzer drift | `+0.003/min` | **100%** | `8.750 min` | `9.290 min` | `0.000%` |
+
+These results establish repeatable behavior only for the documented synthetic noise and
+fault distributions. They do not estimate performance on plant analyzers.
+
 ## Software evidence from the same commit
 
-- 23 automated tests passed on Python 3.11 and 3.12.
-- Measured line coverage: **93.18%**, above the enforced 90% gate.
+- 29 automated tests passed locally on Python 3.12; CI repeats them on Python 3.11 and 3.12.
+- Measured local line coverage: **93.90%**, above the enforced 90% gate.
 - Ruff and strict Mypy passed.
 - The production Docker image built successfully.
 - CI launched the image and received a successful response from the real `/health`
   endpoint.
-- Four validation artifacts were generated and uploaded: Markdown, JSON, and two CSVs.
+- Five validation artifacts were generated: Markdown, JSON, and three CSVs.
 
 Reproduce these results with:
 

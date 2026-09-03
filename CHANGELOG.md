@@ -2,6 +2,30 @@
 
 All notable changes to DistillTwin are documented here.
 
+## 1.1.0 — 2026-09-03
+
+### Analytics validation
+
+- Added complete-scenario train/holdout evaluation for the ridge soft sensor
+- Excluded the directly invertible top-temperature proxy and injected deterministic
+  `0.15 degC` noise into selected tray-temperature features
+- Measured `0.000347` holdout RMSE, a 94.5% reduction from the constant baseline
+
+### Fault robustness
+
+- Added reproducible analyzer noise and gradual drift to the scenario model
+- Added positive-bias, negative-bias, gradual-drift, and no-fault benchmarks across
+  12 seeded noise realizations
+- Reported detection rate, median and P95 delay, pre-fault alarms, and alarm persistence
+- Exported the full fault-suite summary with every validation bundle
+
+### Interfaces
+
+- Exposed noise, drift, and random-seed controls through the API, CLI, and Streamlit lab
+- Added selected tray temperatures, raw residuals, and injected sensor-error components
+  to scenario time series
+- Added a Streamlit render smoke test for the control-room and validation views
+
 ## 1.0.0 — 2026-08-17
 
 First portfolio-ready release of the open, control-oriented digital twin.

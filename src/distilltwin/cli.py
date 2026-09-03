@@ -14,6 +14,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--disturbance-at", type=float, default=20.0)
     parser.add_argument("--feed-composition", type=float, default=0.58)
     parser.add_argument("--sensor-bias", type=float, default=0.0)
+    parser.add_argument("--sensor-drift-rate", type=float, default=0.0)
+    parser.add_argument("--sensor-noise-std", type=float, default=0.0)
+    parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--output", type=Path, default=Path("artifacts/scenario.csv"))
     return parser
 
@@ -26,6 +29,9 @@ def main() -> None:
             disturbance_at=args.disturbance_at,
             feed_composition_after=args.feed_composition,
             top_sensor_bias_after=args.sensor_bias,
+            top_sensor_drift_rate_after=args.sensor_drift_rate,
+            top_sensor_noise_std=args.sensor_noise_std,
+            random_seed=args.random_seed,
         )
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -35,4 +41,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
